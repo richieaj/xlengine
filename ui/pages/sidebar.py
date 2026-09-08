@@ -19,17 +19,23 @@ honestly describe it."""
 import html
 import json
 
-# Effort-level ramp for the DARK control deck — index 0 = level 1. Level 1 is
-# a cyan, not a grey: an earlier grey/slate level-1 color read as "unset"
-# since every lever defaults to level 1, so the whole deck looked untouched
-# even with a real value selected.
-# Reads minimum-action -> all-out effort as cyan -> indigo -> blue -> green,
-# the same ramp the KPI/chart layer above already uses (levels 2-4), so a
-# filled lever means the same thing in the deck as it does in the data.
-# dashboard.js re-reads this same ramp (via each lever's own data-fills
-# attribute, see _lever_html) on every drag/update, so these values are the
-# single source of truth for the slider's fill/thumb color.
-LEVEL_FILL = ["#29B6C7", "#5468DC", "#3B62FF", "#00C08B", "#00C08B"]
+# Effort-level ramp, index 0 = level 1, reading minimum-action -> all-out
+# effort. dashboard.js re-reads it per lever via data-fills (see _lever_html)
+# on every drag/update.
+#
+# The comment that used to sit here argued for level 1 being a cyan rather
+# than a grey, on the grounds that a slate level 1 read as "unset" — but the
+# deck it was written for was dark, and it is a light panel now. On this
+# panel the cyan just looked out of place, and it never matched the level-1
+# slate used by the pathway dots/chip anyway.
+#
+# The effort ramp is defined once, in dashboard.css's :root (--lvl-1..5).
+# These emit references rather than hex so the two can't drift apart the way
+# they had: level 1 here used to be a cyan (#29B6C7) that matched nothing
+# else in the interface. paintLever() in dashboard.js drops the chosen entry
+# straight into the --lg-lever-color custom property, and a custom property
+# is allowed to hold a var() reference, so this resolves at use.
+LEVEL_FILL = ["var(--lvl-1)", "var(--lvl-2)", "var(--lvl-3)", "var(--lvl-4)", "var(--lvl-5)"]
 
 # Panel titles use the reference IESS site's own vocabulary rather than the
 # internal group keys from levers.py — the officials reading this screen
@@ -170,10 +176,20 @@ def _render_box(grp, flyouts):
         for lv in levers:
             hidden_inputs.append(
                 f'<input type="hidden" id="{lv["id"]}" value="{lv["value"]}" data-max="{lv["max"]}">')
-        # The shared quick-set row can't offer a level any of its levers
-        # can't actually take — e.g. "Growth of the Economy" (lv31) is
-        # capped at 3 in the Control sheet itself, not 4 like most rows.
-        row_max = min((lv["max"] for lv in levers), default=4)
+        # The shared row spans the WIDEST range any of its levers can take,
+        # not the narrowest. min() was wrong: Buildings bundles six levers of
+        # which only "Growth of floorspace" (lv40) caps at 3, so a min() row
+        # stopped at 3 and there was no way to push the other five to 4 from
+        # the group control at all. Industry had the same bug pointing the
+        # other way — its "Fuel Switching Choices - Iron and Steel" (lv49)
+        # goes to 5, and a min() row of 4 could never reach it.
+        #
+        # Offering a level some member can't take is safe because nothing
+        # downstream trusts the row: setLeverLevel() in dashboard.js clamps
+        # every lever to its own data-max as it writes, so a row dragged to 4
+        # leaves lv40 at 3 and its siblings at 4. updateLeverRow() knows to
+        # read that back as a saturated row rather than a mixed one.
+        row_max = max((lv["max"] for lv in levers), default=4)
         # Tooltip descriptions only for a single-lever row: a multi-lever
         # row's dot is an average across levers whose OWN level-N notes may
         # not agree with each other, so there's no one honest sentence for

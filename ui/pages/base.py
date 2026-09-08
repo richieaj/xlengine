@@ -1,15 +1,16 @@
 """Outer page shell, top to bottom: a full-bleed masthead band (product name
-centred, menu button right), then a two-column grid — an Insights rail on
-the left, the tab row + active tab's content in the remaining column on the
-right — then Custom Pathways (the old "control deck") full-width again
-below that grid, exactly like the masthead, and finally the site footer.
+centred, menu button right), then a two-column grid — the tab row + active
+tab's content, with the Insights card in a column to their right — then
+Custom Pathways (the old "control deck") full-width again below that grid,
+exactly like the masthead, and finally the site footer.
 
-The rail only runs alongside the tab row/KPI cards/charts, not Custom
-Pathways below it — it's `position:sticky` and scrolls internally if its
-own content outgrows the viewport, while the main column (just the tab row
-+ active tab's content now) is normal in-flow content and scrolls with the
-page. The rail's height is no longer coupled to the active tab's chart
-height the way `.change-sidebar` used to be.
+The Insights card only runs alongside the tab row/KPI cards/charts, not
+Custom Pathways below it. It is `position:sticky` and sized by its own
+content (never stretched to match the charts beside it), while the main
+column is normal in-flow content that scrolls with the page. Its height is
+not coupled to the active tab's chart height the way `.change-sidebar` used
+to be — and must never be coupled to `--ui-scale` either, see the warning
+in dashboard.css above `.pathway-rail`.
 
 Each sub-sector in the deck is one flat row (name + 1..4 buttons); a row
 bundling more than one real lever also gets a chevron that opens that group's
@@ -40,6 +41,15 @@ def render_base():
 <meta charset="utf-8">
 <title>IESS 2047 — India Energy Security Scenarios</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
+<!-- Ranade (Fontshare / Indian Type Foundry) is the display and body face.
+     Space Grotesk and IBM Plex Sans stay in the stacks behind it as fallbacks
+     rather than being removed: Fontshare is a second CDN to depend on, and if
+     it is unreachable the UI should fall back to the faces it was tuned with
+     instead of to a system default. IBM Plex Mono keeps every mono role —
+     Ranade has no monospace cut, and the deck's small-caps labels and figures
+     rely on fixed advance widths. -->
+<link href="https://api.fontshare.com/v2/css?f%5B%5D=ranade@400,500,700&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/css/dashboard.css">
 </head>
@@ -47,11 +57,22 @@ def render_base():
 <main class="page">
   <header class="site-banner">
     <span class="site-banner-side">
-      <img class="site-banner-logo" src="/static/img/niti-aayog-logo-vector.svg" alt="NITI Aayog">
+      <!-- Both logos are plated (white pad + rounded corners) on the dark
+           band, for two different reasons:
+             - NITI: the mark's ink is #01238E navy plus gold, which all but
+               disappears against #3F4247, and recolouring an official emblem
+               to white would throw its gold away.
+             - ACPET: despite the file name, ACPET_LOGO_White.png is not a
+               white-ink variant — it is RGB with NO alpha channel, i.e. a
+               white background painted in. Verified from the PNG header. It
+               can never be transparent, so on a dark band it is a white
+               rectangle whether we like it or not; plating it just makes that
+               rectangle deliberate and matched to the one opposite. -->
+      <img class="site-banner-logo site-banner-logo-plated" src="/static/img/niti-aayog-logo-vector.svg" alt="NITI Aayog">
     </span>
     <span class="site-banner-title">India Energy Security Scenarios</span>
     <span class="site-banner-side site-banner-actions">
-      <img class="site-banner-logo" src="/static/img/ACPET_LOGO_White.png" alt="ACPET">
+      <img class="site-banner-logo site-banner-logo-plated" src="/static/img/ACPET_LOGO_White.png" alt="ACPET">
       <button type="button" class="menu-btn" id="app-menu-btn"
               aria-label="Menu" aria-haspopup="true" aria-expanded="false">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -82,24 +103,6 @@ def render_base():
   </div>
 
   <div class="page-grid">
-    <!-- Full-height rail: sticky within the viewport, own internal scroll if
-         its content outgrows it. Hidden on Energy Flows only (dashboard.js
-         also collapses .page-grid's own rail column via .rail-hidden), same
-         as .change-sidebar used to be. Insights only now — no separate
-         Pathway Impact block; renderInsights() (dashboard.js) already
-         covers the same underlying lever/KPI data in prose form. -->
-    <aside class="pathway-rail" id="pathway-rail">
-      <div class="rail-insights">
-        <div class="rail-insights-head">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.6.6 1 1.5 1 2.5h6c0-1 .4-1.9 1-2.5A6 6 0 0 0 12 3Z"/>
-          </svg>
-          Insights
-        </div>
-        <div class="rail-insights-body" id="insights-panel-body"></div>
-      </div>
-    </aside>
-
     <div class="page-main">
       <div class="tab-row">
         <div class="pill-tabs">__TABS_HTML__</div>
@@ -115,12 +118,49 @@ def render_base():
         <div id="error"></div>
       </div>
     </div>
+
+    <!-- Insights card, right-hand column: sticky within the viewport, own
+         internal scroll if its content outgrows it. Second in the DOM as well
+         as second in the grid, so it reads after the charts it comments on
+         rather than ahead of them. Hidden on Energy Flows only (dashboard.js
+         also collapses .page-grid's own column for it via .rail-hidden).
+         Insights only — no separate Pathway Impact block; renderInsights()
+         (dashboard.js) already covers the same underlying lever/KPI data in
+         prose form. -->
+    <aside class="pathway-rail" id="pathway-rail" aria-label="Insights">
+      <div class="rail-insights">
+        <div class="rail-insights-head">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.6.6 1 1.5 1 2.5h6c0-1 .4-1.9 1-2.5A6 6 0 0 0 12 3Z"/>
+          </svg>
+          Insights
+        </div>
+        <div class="rail-insights-body" id="insights-panel-body"></div>
+      </div>
+    </aside>
   </div>
 
   <!-- Full-width again, outside .page-grid: the rail (Insights) only ever
        covers the tab row + KPI cards + charts above, so it ends where they
        end instead of running down alongside this too. -->
   <section class="control-deck-h">
+    <!-- The deck's top edge used to be a purely decorative 2px gradient rule
+         (.control-deck-h::before). It is a real gauge now: the pathway's own
+         2047 GHG emissions, driven from the same emissions_2047_total the
+         "EMISSIONS 2047" KPI card reads, on a fixed 0-10 GtCO2 scale.
+         The scale is not invented — driving the four preset buttons gives
+         9.6 / 5.3 / 2.8 / 2.0 GtCO2, so 10 Gt is the next round number above
+         the worst case the model produces and the bar empties as a pathway
+         gets more ambitious. dashboard.js's renderEmissionsBar()
+         updates it on every recalc. -->
+    <div class="cdh-emissions" id="cdh-emissions">
+      <span class="cdh-emissions-label">GHG 2047</span>
+      <div class="cdh-emissions-track">
+        <div class="cdh-emissions-fill" id="cdh-emissions-fill"></div>
+        <span class="cdh-emissions-value" id="cdh-emissions-value">&mdash;</span>
+      </div>
+      <span class="cdh-emissions-max">10 GtCO&#8322;</span>
+    </div>
     <div class="cdh-head">
       <div class="cdh-head-text">
         <span class="cr-title">Custom Pathways</span>
@@ -138,16 +178,16 @@ def render_base():
         <span class="cdh-pathway-label">Predefined scenarios</span>
         <div class="cdh-pathway-buttons" id="scenario">
           <button type="button" class="cdh-pathway-btn active" data-level="1">
-            <span class="cdh-pathway-btn-dot" style="background:#9AA3B2"></span>Least effort
+            <span class="cdh-pathway-btn-dot" style="background:var(--lvl-1)"></span>Least effort
           </button>
           <button type="button" class="cdh-pathway-btn" data-level="2">
-            <span class="cdh-pathway-btn-dot" style="background:#5468DC"></span>Determined effort
+            <span class="cdh-pathway-btn-dot" style="background:var(--lvl-2)"></span>Determined effort
           </button>
           <button type="button" class="cdh-pathway-btn" data-level="3">
-            <span class="cdh-pathway-btn-dot" style="background:#3B62FF"></span>Aggressive effort
+            <span class="cdh-pathway-btn-dot" style="background:var(--lvl-3)"></span>Aggressive effort
           </button>
           <button type="button" class="cdh-pathway-btn" data-level="4">
-            <span class="cdh-pathway-btn-dot" style="background:#00C08B"></span>Heroic effort
+            <span class="cdh-pathway-btn-dot" style="background:var(--lvl-4)"></span>Heroic effort
           </button>
         </div>
       </div>
@@ -162,10 +202,13 @@ def render_base():
     </div>
   </section>
 
+  <!-- The "(Best viewed in 1920 x 1080 resolution, scale: 100%)" note that
+       used to sit here is gone: the UI now measures the window and scales
+       itself to fit (dashboard.js's fitUiScale), so there is no blessed
+       resolution left to advise. -->
   <footer class="site-footer">
-    &copy; 2023 NITI AAYOG | DESE ACPET |
-    (Best viewed in 1920 x 1080 resolution, scale: 100%) |
-    DOWNLOADS: <a href="#">ONE PAGER DOCS</a> | <a href="#">IESS V3.0 EXCEL</a> | <a href="#">VIDEO</a>
+    &copy; 2026 NITI AAYOG | ACPET |
+    DOWNLOADS: <a href="#">ONE PAGER DOCS</a> | <a href="#">IESS V3.0 EXCEL</a>
   </footer>
 </main>
 

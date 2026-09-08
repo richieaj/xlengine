@@ -1,18 +1,21 @@
 const ids = window.APP_CONFIG.leverIds;
-// EUCalc / Transition-Pathway-Explorer palette, taken from the reference
-// "Greenhouse gas emissions" chart: soft but fully saturated fills that stay
-// distinguishable at a glance and print legibly.
+// Positional fallback for any series SERIES_COLOR doesn't name — same EU-Calc
+// register as SERIES_COLOR itself, and ordered so consecutive positions are
+// far apart in luminance (an unnamed series most often lands next to another
+// unnamed one). These were left on the previous palette's hexes when
+// SERIES_COLOR was restyled, which would have mixed two registers on any
+// chart carrying a series the map doesn't list.
 const COLORS = [
-  "#8FDBA0", // green
-  "#F2DE79", // yellow
-  "#3E9C93", // teal
-  "#F2718D", // rose
-  "#8E8FD8", // periwinkle
-  "#F5B183", // orange
-  "#7FBEE8", // light blue
-  "#84E3E8", // cyan
-  "#A9B2BD", // neutral grey
-  "#6E7681", // slate
+  "#A5E0A0", // green      (EUCALC)
+  "#EC6E85", // rose       (EUCALC)
+  "#9FC5EE", // blue       (EUCALC)
+  "#F5A623", // orange     (EUCALC)
+  "#8B7FD4", // violet     (EUCALC)
+  "#F7E48F", // yellow
+  "#5CB8AB", // teal
+  "#A8E6EC", // cyan
+  "#D5DAE0", // light grey
+  "#3C3C3C", // near-black (EUCALC)
 ];
 
 // The same category keeps the same colour on every chart and every tab, so a
@@ -21,45 +24,91 @@ const COLORS = [
 // outputs.py's DEMAND_SECTOR_GROUPS / SUPPLY_SOURCE_GROUPS etc. Anything not
 // listed falls back to COLORS by position, so a new series still gets a
 // palette colour rather than an off-palette one.
+/* Series palette, in the EU-Calc register (the reference tool this project is
+   modelled on) — its own sampled colours are the anchors, marked (EUCALC)
+   below:
+
+     #A5E0A0 green   #EC6E85 rose   #9FC5EE blue
+     #8B7FD4 violet  #F5A623 orange #3C3C3C near-black
+
+   Six colours can't dress 9+ stacked supply series, so the rest are
+   extensions built in the same register (same lightness band, comparable
+   saturation) rather than borrowed from elsewhere: a yellow, a teal, a cyan,
+   a light violet and two greys.
+
+   Assignment keeps the fuel conventions an energy reader expects, which the
+   EU-Calc anchors mostly allow anyway: coal darkest, oil orange, gas red,
+   nuclear violet, hydro blue, bio/other green, solar yellow, wind teal.
+
+   The extension values are not eyeballed. EU-Calc's register is a tight
+   lightness band, so a first pass at these clustered badly — five pairs of
+   series that share a chart landed within 0.03 relative luminance of each
+   other, i.e. indistinguishable in greyscale or to some colour-vision
+   deficiencies, and worse than the palette this replaced. They were solved
+   instead, by searching candidates for the arrangement that maximises the
+   SMALLEST luminance gap between any two series drawn on the same chart:
+   0.053, up from 0.023 in the old palette. The binding pair is now
+   Agriculture/Natural gas (rose) against Telecom/Nuclear (violet) — both
+   EU-Calc anchors, so that is the floor without abandoning them. Hue and the
+   per-series marker shapes (SERIES_SHAPE) carry the rest of the distinction.
+
+   ONE deliberate departure from EU-Calc's own assignment: they paint
+   Transport near-black, but Transport is a thin sliver in their chart and the
+   single largest band in our Energy Demand chart — a near-black block over a
+   third of the plot reads as a hole in it. Transport takes the teal
+   extension; near-black goes to Coal, where a heavy band is both
+   conventional and semantically right. */
 const SERIES_COLOR = {
   // demand sectors
-  "Buildings": "#8FDBA0",
-  "Residential Buildings": "#8FDBA0",
-  "Commercial Buildings": "#6FCB8A",
-  "Industry": "#F2DE79",
-  "Heavy Industry": "#F2DE79",
-  "Transport": "#3E9C93",
-  "Passenger Transport": "#3E9C93",
-  "Freight Transport": "#57B3A9",
-  "Telecom, Cooking & Transport": "#3E9C93",
-  "Agriculture": "#F2718D",
-  "Telecom": "#8E8FD8",
-  "Cooking": "#F5B183",
-  "Miscellaneous": "#A9B2BD",
-  "Non-energy use": "#C2C9D2",
+  "Buildings": "#9FC5EE",                 // (EUCALC) their "Indirect" blue
+  "Residential Buildings": "#9FC5EE",
+  "Commercial Buildings": "#C4DCF5",
+  "Industry": "#A5E0A0",                  // (EUCALC) their "Industry" green
+  "Heavy Industry": "#A5E0A0",
+  "Transport": "#5CB8AB",                 // extension: teal — see note above
+  "Passenger Transport": "#5CB8AB",
+  "Freight Transport": "#8ED2C7",
+  "Telecom, Cooking & Transport": "#5CB8AB",
+  "Agriculture": "#EC6E85",               // (EUCALC) their "Other" rose
+  "Telecom": "#8B7FD4",                   // (EUCALC) their "Energy" violet
+  "Cooking": "#F5A623",                   // (EUCALC) their "Electronics" orange
+  "Miscellaneous": "#D5DAE0",             // extension: grey
+  "Non-energy use": "#E6E9EC",            // extension: lighter grey
   // supply sources
-  "Solar": "#F2DE79",
-  "Solar PV": "#F2DE79",
-  "Wind": "#3E9C93",
-  "Hydro": "#7FBEE8",
-  "Small Hydro": "#A6D4F0",
-  "Nuclear": "#8E8FD8",
-  "Others": "#8FDBA0",
-  "Bioenergy": "#8FDBA0",
-  "Biomass": "#8FDBA0",
-  "Coal": "#6E7681",
-  "Oil and petroleum products": "#F5B183",
-  "Oil": "#F5B183",
-  "Natural gas": "#F2718D",
-  "Gas": "#F2718D",
-  "Electricity Import": "#84E3E8",
-  "Electricity Imports": "#84E3E8",
-  "Electricity trade": "#84E3E8",
-  "Electricity": "#8E8FD8",
-  "CCS": "#A9B2BD",
+  "Solar": "#F7E48F",                     // extension: yellow (EU-Calc has none)
+  "Solar PV": "#F7E48F",
+  "Wind": "#5CB8AB",                      // extension: teal
+  "Hydro": "#9FC5EE",                     // (EUCALC) blue
+  "Small Hydro": "#C4DCF5",
+  "Nuclear": "#8B7FD4",                   // (EUCALC) violet
+  "Others": "#A5E0A0",                    // (EUCALC) green
+  "Bioenergy": "#A5E0A0",
+  "Biomass": "#A5E0A0",
+  "Coal": "#3C3C3C",                      // (EUCALC) near-black — heaviest band
+  "Oil and petroleum products": "#F5A623",// (EUCALC) orange
+  "Oil": "#F5A623",
+  "Natural gas": "#EC6E85",               // (EUCALC) rose
+  "Gas": "#EC6E85",
+  "Electricity Import": "#A8E6EC",        // extension: cyan
+  "Electricity Imports": "#A8E6EC",
+  "Electricity trade": "#A8E6EC",
+  "Electricity": "#A79BE0",               // extension: light violet
+  "CCS": "#D5DAE0",
   // aggregate line
   "Total": "#1b1d29",
 };
+
+/* Relative luminance (WCAG), used to decide whether a band's in-chart label
+   should be white or black. Computed rather than listed, so the palette above
+   can change without silently stranding a label on a dark fill. */
+function isDarkColor(hex) {
+  if (typeof hex !== "string" || hex[0] !== "#" || hex.length < 7) return false;
+  const chan = (i) => {
+    const c = parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * chan(0) + 0.7152 * chan(1) + 0.0722 * chan(2) < 0.42;
+}
 
 // Marker shape follows the same semantic-name-first, index-fallback pattern as
 // colorForSeries(), so a series reads as the same shape on every chart and every
@@ -150,15 +199,25 @@ function setStatus(text, cls) {
   chip.className = cls || "";
 }
 
-function stackedAreaDatasets(chartData, changedSeries) {
+/* No per-series "changed" styling here any more. A series whose values moved
+   since the baseline used to be redrawn with a 3px amber dashed stroke
+   (`borderColor: "#a0761f", borderWidth: 3, borderDash: [4, 2]`), which meant
+   that moving any lever scribbled a dotted line across the band it affected —
+   over the data, on the chart you were trying to read, and on every recalc.
+   The card-level "CHANGED SINCE BASELINE" badge (.changed-note, driven by
+   opts.changedCardId in renderStackedChart) already says which chart moved
+   without drawing on top of it, so the information isn't lost.
+
+   `changedSeries` is consequently no longer a parameter of this function —
+   renderStackedChart still receives it for that badge. */
+function stackedAreaDatasets(chartData) {
   const names = Object.keys(chartData.series);
   const datasets = names.map((name, i) => {
-    const isChanged = changedSeries && changedSeries[name] && changedSeries[name].some(Boolean);
     const color = colorForSeries(name, i);
     return {
       label: name, data: chartData.series[name], fill: true,
-      backgroundColor: areaFill(color), borderColor: isChanged ? "#a0761f" : color,
-      borderWidth: isChanged ? 3 : 0.5, borderDash: isChanged ? [4, 2] : [],
+      backgroundColor: areaFill(color), borderColor: color,
+      borderWidth: 0.5,
       // Carried for the legend swatch and the in-band label, which both need
       // the flat colour rather than the gradient function.
       bandColor: color,
@@ -272,8 +331,13 @@ const bandLabelPlugin = {
       if (placed.some((p) => overlaps(p, rect))) return;
       placed.push(rect);
 
-      const dark = ["#6E7681", "#3E9C93", "#57B3A9"].includes(ds.bandColor);
-      ctx.fillStyle = dark ? "rgba(255,255,255,.95)" : "#000000";
+      // Computed from the band's own colour, not matched against a list. This
+      // used to be `["#6E7681", "#3E9C93", "#57B3A9"].includes(...)` — three
+      // hard-coded hexes that got white text while everything else got black.
+      // That silently rots the moment the palette changes: a new dark band not
+      // on the list gets black text on a near-black fill, and the label just
+      // disappears. isDarkColor() measures instead, so any palette works.
+      ctx.fillStyle = isDarkColor(ds.bandColor) ? "rgba(255,255,255,.95)" : "#000000";
       ctx.fillText(ds.label, x, y);
     });
     ctx.restore();
@@ -471,7 +535,7 @@ if (window.Chart) Chart.register(crosshairTooltipPlugin);
 function renderStackedChart(canvasId, chartData, changedSeries, opts) {
   opts = opts || {};
   const unit = opts.unit || "Mtoe";
-  const { datasets } = stackedAreaDatasets(chartData, changedSeries);
+  const { datasets } = stackedAreaDatasets(chartData);
   const ctx = document.getElementById(canvasId);
   if (!charts[canvasId]) {
     const yTicks = opts.compact ? { callback: (v) => formatCompact(v) } : {};
@@ -493,11 +557,12 @@ function renderStackedChart(canvasId, chartData, changedSeries, opts) {
       legend.labels.sort = (a, b) =>
         (a.text === "Total" ? -1 : 0) - (b.text === "Total" ? -1 : 0);
     }
-    charts[canvasId] = new Chart(ctx, {
+    charts[canvasId] = newSizedChart(canvasId, ctx, {
       type: "line",
       data: { labels: chartData.years, datasets },
       options: {
-        responsive: true,
+        // responsive:false is deliberate — see resizeChartsToContainers.
+        responsive: false,
         maintainAspectRatio: opts.maintainAspectRatio !== undefined ? opts.maintainAspectRatio : false,
         interaction: INDEX_INTERACTION,
         plugins: {
@@ -580,11 +645,12 @@ function renderStackedBarChart(canvasId, chartData, opts) {
   const ctx = document.getElementById(canvasId);
   const data = { labels: chartData.years, datasets };
   if (!charts[canvasId]) {
-    charts[canvasId] = new Chart(ctx, {
+    charts[canvasId] = newSizedChart(canvasId, ctx, {
       type: "bar",
       data,
       options: {
-        responsive: true,
+        // responsive:false is deliberate — see resizeChartsToContainers.
+        responsive: false,
         interaction: INDEX_INTERACTION,
         plugins: {
           legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } },
@@ -656,11 +722,12 @@ function renderImportDependenceChart(canvasId, chartData) {
   const ctx = document.getElementById(canvasId);
   const data = { labels: chartData.years, datasets };
   if (!charts[canvasId]) {
-    charts[canvasId] = new Chart(ctx, {
+    charts[canvasId] = newSizedChart(canvasId, ctx, {
       type: "line",
       data,
       options: {
-        responsive: true,
+        // responsive:false is deliberate — see resizeChartsToContainers.
+        responsive: false,
         interaction: INDEX_INTERACTION,
         layout: { padding: { right: 90 } },
         plugins: { legend: { display: false }, tooltip: INDEX_INTERACTION, endpointLabels: true },
@@ -683,11 +750,12 @@ function renderBarChart(canvasId, chartData, opts) {
     datasets: [{ label: opts.unit || "", data: values, backgroundColor: color, borderRadius: 3 }],
   };
   if (!charts[canvasId]) {
-    charts[canvasId] = new Chart(ctx, {
+    charts[canvasId] = newSizedChart(canvasId, ctx, {
       type: "bar",
       data,
       options: {
-        responsive: true,
+        // responsive:false is deliberate — see resizeChartsToContainers.
+        responsive: false,
         interaction: INDEX_INTERACTION,
         plugins: { legend: { display: false }, tooltip: INDEX_INTERACTION },
         scales: { y: yAxis(opts.unit || "", { min: 0 }), x: xAxis("Year") },
@@ -838,14 +906,30 @@ function paintLever(lever, value, max) {
 // discrete buttons to one continuous lever).
 function updateLeverRow(row) {
   const leverIds = row.dataset.leverIds.split(",").filter(Boolean);
-  const values = leverIds.map((id) => parseInt(document.getElementById(id).value, 10));
+  const hiddens = leverIds.map((id) => document.getElementById(id));
   const lever = row.querySelector(".lg-lever");
-  if (!lever || !values.length) return;
-  const allSame = values.every((v) => v === values[0]);
+  if (!lever || !hiddens.length) return;
+  const values = hiddens.map((h) => parseInt(h.value, 10));
+  const caps = hiddens.map((h) => parseInt(h.dataset.max, 10));
   const max = parseInt(lever.dataset.max, 10);
-  const shown = allSame ? values[0] : Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+  // The row reads as the HIGHEST level any of its levers reached, not their
+  // average: a lever pinned at its own lower ceiling must not drag the row's
+  // position back down (Buildings' "Growth of floorspace" stops at 3 while
+  // its five siblings go to 4, so an average would park that row at 4 by
+  // luck here and mis-report it as soon as a row has more capped levers).
+  const target = Math.max.apply(null, values);
+  // "Agreeing" has to account for saturation. A lever sitting at its own cap
+  // while its siblings sit higher is NOT a mixed row — it is as far as that
+  // lever goes — so only report mixed when some lever is below the target
+  // AND below its own cap, i.e. genuinely out of step because it was edited
+  // individually in the flyout. Without this, every Buildings row at level 4
+  // would wear the mixed ring permanently.
+  const inStep = values.every((v, i) => v === Math.min(target, caps[i]));
+  const shown = inStep
+    ? target
+    : Math.round(values.reduce((a, b) => a + b, 0) / values.length);
   lever.querySelector(".lg-lever-input").value = shown;
-  lever.classList.toggle("is-mixed", !allSame);
+  lever.classList.toggle("is-mixed", !inStep);
   paintLever(lever, shown, max);
 }
 
@@ -950,6 +1034,46 @@ function addInsightsGroupLabel(body, label) {
 // snapshot the stat cards above already show — so the idle/base state
 // (nothing moved yet) is just a one-line status, not a repeat of those
 // numbers.
+/* The GHG gauge along the deck's top edge (see .cdh-emissions).
+   EMISSIONS_SCALE_GT is a real reference, not a guess: clicking through the
+   four preset buttons gives 9.6 / 5.3 / 2.8 / 2.0 GtCO2 for 2047, so 10 Gt is
+   the next round number above the worst case the model produces. A pathway
+   therefore starts the bar nearly full and empties it as it gets more
+   ambitious. (Measured through the UI, not by hand-posting a lever vector to
+   /recalc — a hand-built payload has to guess the lever ids and quietly gets
+   different answers.)
+   emissions_2047_total arrives in MEGAtonnes (9635.32 for the least-effort
+   pathway, which the KPI card shows as 9.6 GtCO2) — hence the /1000. */
+const EMISSIONS_SCALE_GT = 10;
+
+function renderEmissionsBar(data) {
+  const fill = document.getElementById("cdh-emissions-fill");
+  const value = document.getElementById("cdh-emissions-value");
+  if (!fill || !value) return;
+  const mt = data.emissions_2047_total;
+  if (mt == null || isNaN(mt)) return;
+
+  const gt = mt / 1000;
+  const pct = Math.max(0, Math.min(100, (gt / EMISSIONS_SCALE_GT) * 100));
+  fill.style.width = pct + "%";
+  value.style.left = pct + "%";
+  value.textContent = gt.toFixed(1) + " GtCO₂";
+  // Inside the fill (white) whenever the fill is genuinely wide enough to hold
+  // the text, otherwise just outside it in dark ink. Measured in pixels rather
+  // than guessed from the percentage: the track's width varies with the window
+  // and with --ui-scale, so the same percentage is a different number of
+  // pixels on different screens.
+  const trackPx = fill.parentElement.clientWidth || 0;
+  value.classList.toggle("is-inside", (trackPx * pct) / 100 > value.offsetWidth + 18);
+
+  const wrap = document.getElementById("cdh-emissions");
+  if (wrap) {
+    wrap.setAttribute("role", "img");
+    wrap.setAttribute("aria-label",
+      `Greenhouse gas emissions in 2047: ${gt.toFixed(1)} of ${EMISSIONS_SCALE_GT} gigatonnes CO2 on the scale shown`);
+  }
+}
+
 function renderInsights(data) {
   const body = document.getElementById("insights-panel-body");
   body.innerHTML = "";
@@ -958,7 +1082,11 @@ function renderInsights(data) {
   const kpiChanges = data.kpi_deltas || {};
 
   if (!leverChanges.length) {
-    addInsightsGroupLabel(body, "Base state");
+    // No "Base state" chip: which levers are where is already legible in the
+    // Custom Pathways deck itself, so labelling the idle message added a
+    // heading over a single sentence and nothing else. The changed-state
+    // groups below ("Levers changed" / "Impact on results") keep theirs —
+    // those genuinely separate two lists.
     addInsightsLine(body, null, ["This is the base pathway — nothing has been changed yet. Adjust a lever in Custom Pathways below to see its impact."]);
     return;
   }
@@ -999,6 +1127,7 @@ function applyResult(data) {
   deferredCacheKey = null;
   renderOverviewKpis(data);
   renderInsights(data);
+  renderEmissionsBar(data);
   updatePathwayName();
   updateAllGroupAvgs();
   updateAllSubcatQuickButtons();
@@ -1023,23 +1152,23 @@ function applyResult(data) {
     renderStackedChart("emissionsBySectorChart", data.emissions_by_sector_chart, null, { unit: "Million tonne CO2e", legendPosition: "right" });
   }
   if (data.per_capita_emissions_chart) {
-    renderBarChart("perCapitaEmissionsChart", data.per_capita_emissions_chart, { unit: "tonne CO2e per person", color: "#8E8FD8" });
-    renderBarChart("indPerCapitaEmissionsChart", data.per_capita_emissions_chart, { unit: "tonne CO2e/person", color: "#8E8FD8" });
+    renderBarChart("perCapitaEmissionsChart", data.per_capita_emissions_chart, { unit: "tonne CO2e per person", color: "#8B7FD4" });
+    renderBarChart("indPerCapitaEmissionsChart", data.per_capita_emissions_chart, { unit: "tonne CO2e/person", color: "#8B7FD4" });
   }
   if (data.emissions_intensity_chart) {
-    renderBarChart("indEmissionsIntensityChart", data.emissions_intensity_chart, { unit: "kg CO2e / 1000 INR", color: "#8E8FD8" });
+    renderBarChart("indEmissionsIntensityChart", data.emissions_intensity_chart, { unit: "kg CO2e / 1000 INR", color: "#8B7FD4" });
   }
   if (data.energy_intensity_chart) {
-    renderBarChart("indEnergyIntensityChart", data.energy_intensity_chart, { unit: "MJ/INR", color: "#F2DE79" });
+    renderBarChart("indEnergyIntensityChart", data.energy_intensity_chart, { unit: "MJ/INR", color: "#F7E48F" });
   }
   if (data.per_capita_supply_chart) {
-    renderBarChart("perCapitaSupplyChart", data.per_capita_supply_chart, { unit: "toe/person", color: "#3E9C93" });
+    renderBarChart("perCapitaSupplyChart", data.per_capita_supply_chart, { unit: "toe/person", color: "#5CB8AB" });
   }
   if (data.capacity_chart) {
     renderStackedChart("capacityChart", data.capacity_chart, null, { unit: "GW", legendPosition: "right" });
   }
   if (data.demand_electrification_chart) {
-    renderBarChart("demandElectrificationChart", data.demand_electrification_chart, { unit: "%", color: "#8E8FD8" });
+    renderBarChart("demandElectrificationChart", data.demand_electrification_chart, { unit: "%", color: "#8B7FD4" });
   }
   if (data.import_cost_chart) {
     renderStackedChart("importCostChart", data.import_cost_chart, null, { unit: "Billion INR", legendPosition: "right" });
@@ -1069,6 +1198,15 @@ function applyResult(data) {
       data.changed && data.changed.electricity_supply_chart && data.changed.electricity_supply_chart.series,
       { ...duoOpts, changedCardId: "card-elec-supply" });
   }
+
+  // Any chart created just now was sized by Chart.js, which measures its
+  // container wrongly whenever --ui-scale isn't 1 (see
+  // resizeChartsToContainers) — too small below 1, over its card above it.
+  // Correcting here, where charts are actually built, is what makes this
+  // reliable: hanging it off the fit's own timers instead meant a recalc that
+  // took longer than the last timer left its charts uncorrected, overflowing
+  // the page sideways.
+  requestAnimationFrame(resizeChartsToContainers);
 }
 
 /* ---------- Tab switching ---------- */
@@ -1232,7 +1370,8 @@ document.querySelectorAll(".lg-subcat-row").forEach((row) => {
   chevrons.forEach((chevron) => {
     const flyout = document.getElementById(chevron.dataset.flyout);
     if (!flyout) return;
-    chevron.addEventListener("click", (e) => {
+
+    function toggle(e) {
       e.stopPropagation();
       const alreadyOpen = flyout === openFlyout;
       closeFlyout();
@@ -1241,13 +1380,45 @@ document.querySelectorAll(".lg-subcat-row").forEach((row) => {
         // so "which lever is this attached to" is never ambiguous.
         const col = chevron.closest(".lg-col");
         if (col) col.after(railCol);
+        // Cap the rail to the tallest lever column before opening it, so an
+        // open flyout can never make the deck taller than it already is.
+        // Without this the rail's own 260px ceiling exceeded the tallest
+        // column (198px), the deck grew by the difference, and the page ended
+        // up 61px taller than the window — the footer scrolled out of sight
+        // the moment you opened a sub-lever list. The flyout scrolls inside
+        // itself instead (.lg-rail is overflow-y:auto), which is what that
+        // overflow was always there for.
+        //
+        // offsetHeight, not getBoundingClientRect(): it reports logical
+        // (unzoomed) pixels, which is the space a CSS max-height is expressed
+        // in. A rect here would be real pixels and would need dividing by
+        // --ui-scale — the same trap documented in sizeChartToContainer().
+        const cols = [...railCol.parentElement.querySelectorAll(".lg-col:not(.lg-rail-col)")];
+        const tallest = Math.max(0, ...cols.map((el) => el.offsetHeight));
+        if (tallest) railCol.style.maxHeight = tallest + "px";
         railCol.classList.add("is-open");
         flyout.classList.add("is-open");
         chevron.setAttribute("aria-expanded", "true");
         openFlyout = flyout;
         openChevron = chevron;
       }
-    });
+    }
+
+    chevron.addEventListener("click", toggle);
+
+    // The row's LABEL opens it too. Reaching for a 15px chevron was the only
+    // way in before. Bound to .lg-subcat-title rather than the whole row on
+    // purpose: the row also carries the lever, and a click there has to reach
+    // the slider rather than being intercepted. The chevron keeps the
+    // aria-expanded state and the keyboard path, so the title stays a plain
+    // pointer affordance and adds no second tab stop.
+    const row = chevron.closest(".lg-subcat-row");
+    const title = row && row.querySelector(".lg-subcat-title");
+    if (row && title) {
+      row.classList.add("is-expandable");   // CSS hangs the hover/cursor off this
+      title.addEventListener("click", toggle);
+    }
+
     const closeBtn = flyout.querySelector(".lg-flyout-close");
     if (closeBtn) closeBtn.addEventListener("click", closeFlyout);
   });
@@ -1369,42 +1540,87 @@ function renderSankey(yearData) {
   }
 
   const tooltip = document.getElementById("sankey-tooltip");
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const linkPath = d3.sankeyLinkHorizontal();
 
-  svg.append("g").selectAll("path")
+  /* ---- Flow tracing -------------------------------------------------------
+     Hovering a node lights the WHOLE chain it belongs to, not just the links
+     touching it: everything upstream that feeds it and everything downstream
+     it feeds, walked transitively. That is the interesting question on this
+     diagram - hover Electricity and you see every fuel that produced it and
+     every sector that consumed it, in one look.
+     d3-sankey gives each node its own sourceLinks/targetLinks, so the walk is
+     a plain breadth-first search over those. A sankey layout cannot contain a
+     cycle, but `seen` guards the traversal regardless. */
+  function trace(startNode) {
+    const litLinks = new Set();
+    const litNodes = new Set([startNode]);
+    const walk = (node, direction) => {
+      const queue = [node];
+      const seen = new Set([node]);
+      while (queue.length) {
+        const cur = queue.shift();
+        const edges = direction === "up" ? cur.targetLinks : cur.sourceLinks;
+        for (const edge of edges || []) {
+          litLinks.add(edge);
+          const next = direction === "up" ? edge.source : edge.target;
+          litNodes.add(next);
+          if (!seen.has(next)) { seen.add(next); queue.push(next); }
+        }
+      }
+    };
+    walk(startNode, "up");
+    walk(startNode, "down");
+    return { litLinks, litNodes };
+  }
+
+  const throughput = (n) => {
+    const inSum = (n.targetLinks || []).reduce((t, l) => t + l.value, 0);
+    const outSum = (n.sourceLinks || []).reduce((t, l) => t + l.value, 0);
+    return Math.max(inSum, outSum);
+  };
+
+  const gLinks = svg.append("g");
+  const gFlow = svg.append("g").attr("pointer-events", "none");
+  const gNodes = svg.append("g");
+
+  const link = gLinks.selectAll("path")
     .data(graph.links)
     .join("path")
-    .attr("d", d3.sankeyLinkHorizontal())
+    .attr("class", "sankey-link")
+    .attr("d", linkPath)
     .attr("fill", "none")
     .attr("stroke", (d) => SANKEY_NODE_COLORS[d.source.category] || "#c3c6d4")
     .attr("stroke-opacity", 0.35)
+    .attr("stroke-width", (d) => Math.max(1, d.width));
+
+  /* A second, dashed copy of every link, invisible until traced. Its dashes
+     scroll (CSS animation on stroke-dashoffset), which is what makes a traced
+     route read as flowing rather than merely coloured. An overlay rather than
+     dashing the real link, because dashing that would punch gaps in the band
+     itself. */
+  const flow = gFlow.selectAll("path")
+    .data(graph.links)
+    .join("path")
+    .attr("class", "sankey-flow")
+    .attr("d", linkPath)
+    .attr("fill", "none")
+    .attr("stroke", "#fff")
     .attr("stroke-width", (d) => Math.max(1, d.width))
-    .on("mousemove", (event, d) => {
-      tooltip.innerHTML = `<b>${d.source.name} → ${d.target.name}</b><br>${d.value.toFixed(2)} Mtoe`;
-      tooltip.style.left = event.offsetX + "px";
-      tooltip.style.top = event.offsetY + "px";
-      tooltip.classList.add("show");
-    })
-    .on("mouseleave", () => tooltip.classList.remove("show"));
+    .attr("stroke-dasharray", "10 26");
 
-  const node = svg.append("g").selectAll("g")
-    .data(graph.nodes)
-    .join("g");
+  const node = gNodes.selectAll("g").data(graph.nodes).join("g");
 
-  node.append("rect")
+  const rect = node.append("rect")
+    .attr("class", "sankey-node")
     .attr("x", (d) => d.x0)
     .attr("y", (d) => d.y0)
     .attr("width", (d) => d.x1 - d.x0)
     .attr("height", (d) => Math.max(1, d.y1 - d.y0))
-    .attr("fill", (d) => SANKEY_NODE_COLORS[d.category] || "#9aa0b3")
-    .on("mousemove", (event, d) => {
-      tooltip.innerHTML = `<b>${d.name}</b>`;
-      tooltip.style.left = event.offsetX + "px";
-      tooltip.style.top = event.offsetY + "px";
-      tooltip.classList.add("show");
-    })
-    .on("mouseleave", () => tooltip.classList.remove("show"));
+    .attr("fill", (d) => SANKEY_NODE_COLORS[d.category] || "#9aa0b3");
 
-  node.append("text")
+  const label = node.append("text")
+    .attr("class", "sankey-label")
     .attr("x", (d) => (d.x0 < width / 2 ? d.x1 + 6 : d.x0 - 6))
     .attr("y", (d) => (d.y0 + d.y1) / 2)
     .attr("dy", "0.35em")
@@ -1412,13 +1628,325 @@ function renderSankey(yearData) {
     .attr("font-size", 11)
     .attr("fill", "var(--ink)")
     .text((d) => d.name);
+
+  function clearHighlight() {
+    link.classed("is-traced", false).classed("is-dimmed", false);
+    flow.classed("is-on", false);
+    rect.classed("is-dimmed", false);
+    label.classed("is-dimmed", false);
+  }
+
+  function highlight(litLinks, litNodes) {
+    link.classed("is-traced", (d) => litLinks.has(d))
+        .classed("is-dimmed", (d) => !litLinks.has(d));
+    flow.classed("is-on", (d) => !reduceMotion && litLinks.has(d));
+    rect.classed("is-dimmed", (d) => !litNodes.has(d));
+    label.classed("is-dimmed", (d) => !litNodes.has(d));
+  }
+
+  /* The tooltip is centred over the cursor and sits above it
+     (transform: translate(-50%, -120%)), so near an edge it used to hang off
+     the card and get sliced by its overflow. The card no longer clips (see
+     .sankey-card), and the position is clamped here so the box stays whole
+     inside the plot even when the pointer is right at the boundary.
+     offsetX/offsetY are deliberate: they are layout (logical) pixels, the
+     same space as the left/top they are written into. clientX/clientY would
+     be real pixels and would need dividing by --ui-scale. */
+  const showTip = (event, html) => {
+    tooltip.innerHTML = html;
+    tooltip.classList.add("show");
+    const card = tooltip.parentElement;
+    const margin = 8;
+    const halfW = tooltip.offsetWidth / 2;
+    const cardW = card ? card.clientWidth : 0;
+    let x = event.offsetX;
+    if (cardW > tooltip.offsetWidth + margin * 2) {
+      x = Math.max(halfW + margin, Math.min(cardW - halfW - margin, x));
+    }
+    // Flipped below the cursor when there is not room above for it, rather
+    // than letting it run off the top of the plot.
+    const needsAbove = tooltip.offsetHeight * 1.2 + margin;
+    tooltip.classList.toggle("is-below", event.offsetY < needsAbove);
+    tooltip.style.left = x + "px";
+    tooltip.style.top = event.offsetY + "px";
+  };
+
+  link
+    .on("mousemove", (event, d) => {
+      const src = throughput(d.source);
+      const share = src ? (d.value / src) * 100 : 0;
+      showTip(event, "<b>" + d.source.name + " → " + d.target.name + "</b><br>" +
+        d.value.toFixed(2) + " Mtoe<br>" + share.toFixed(0) + "% of " + d.source.name);
+    })
+    .on("mouseenter", (event, d) => highlight(new Set([d]), new Set([d.source, d.target])))
+    .on("mouseleave", () => { tooltip.classList.remove("show"); clearHighlight(); });
+
+  rect
+    .on("mousemove", (event, d) => {
+      const ins = (d.targetLinks || []).length;
+      const outs = (d.sourceLinks || []).length;
+      showTip(event, "<b>" + d.name + "</b><br>" + throughput(d).toFixed(2) + " Mtoe<br>" +
+        ins + " in · " + outs + " out — full route traced");
+    })
+    .on("mouseenter", (event, d) => { const t = trace(d); highlight(t.litLinks, t.litNodes); })
+    .on("mouseleave", () => { tooltip.classList.remove("show"); clearHighlight(); });
+
+  /* ---- Entry animation ----------------------------------------------------
+     Links draw themselves in, staggered by how deep they sit in the diagram,
+     so the picture builds along the direction the energy flows rather than
+     appearing all at once. Standard dash-reveal: offset the path by its own
+     length, then run that offset to zero.
+
+     Driven by CSS animations, NOT d3 transitions, for two reasons:
+
+     1. `.transition()` does not exist here. base.py loads d3-array, d3-path,
+        d3-shape, d3-selection and d3-sankey — d3-transition is not among
+        them, and it does not come bundled with any of those. A first pass at
+        this used it and threw a TypeError on the first link, which left that
+        link stranded with its reveal dash applied (i.e. INVISIBLE) and
+        aborted the .each() before any other element was touched. Pulling
+        d3-transition in would mean five more CDN scripts, since its own
+        dependencies (d3-color/-dispatch/-ease/-interpolate/-timer) are not
+        bundled either.
+     2. A CSS animation with `forwards` cannot fail into a hidden link. The
+        end state is declared, not applied by a callback, so no interrupted
+        re-render, missed event or thrown handler can leave a flow invisible.
+        That failure mode is a data-integrity bug in a diagram like this, not
+        a cosmetic one, so it is worth designing out rather than guarding.
+
+     Skipped wholesale under prefers-reduced-motion. */
+  if (!reduceMotion) {
+    const maxDepth = Math.max(1, ...graph.nodes.map((n) => n.depth || 0));
+    const stagger = (d) => (((d.depth || 0) / maxDepth) * 260).toFixed(0) + "ms";
+    link.each(function (d) {
+      let len = 0;
+      try { len = this.getTotalLength(); } catch (e) { len = 0; }
+      if (!len) return;
+      this.setAttribute("stroke-dasharray", len + " " + len);
+      this.setAttribute("stroke-dashoffset", len);
+      this.style.animationDelay = stagger(d.source);
+      this.classList.add("sankey-reveal");
+    });
+    rect.each(function (d) { this.style.animationDelay = stagger(d); this.classList.add("sankey-fade-in"); });
+    label.each(function (d) {
+      this.style.animationDelay = (parseFloat(stagger(d)) + 140).toFixed(0) + "ms";
+      this.classList.add("sankey-fade-in");
+    });
+  }
 }
 
-window.addEventListener("resize", () => {
+/* ---------- Fit the whole UI to the window ----------
+   dashboard.css is px-based end to end — every chart height in it is a fixed
+   number tuned against a ~1080p window — and `--ui-scale` (`zoom` on body) is
+   the single knob that resizes the lot. Left at one static value, the
+   interface renders at that same physical size on every monitor: on a large
+   one the content stopped well short of the bottom of the window and left a
+   band of dead page background under the footer — which is what the footer's
+   old "best viewed in 1920 x 1080" note was really admitting to (that note is
+   gone now that the UI fits itself to the window instead).
+
+   So measure instead of assuming. The footer is .page's last child and .page
+   is a flex column packed to the top, so the footer's own bottom edge IS the
+   content's bottom edge (.page's min-height stretches the container, never
+   the footer's position). Scale until that edge meets the bottom of the
+   window and the dead band is gone by construction — at whatever size the
+   window happens to be, rather than at one blessed resolution.
+
+   Widths are deliberately left alone: every column in the layout is already
+   fluid and fills what it's given, so only the vertical axis was ever short.
+
+   getBoundingClientRect() is the right measurement here (not offsetTop /
+   offsetHeight): it reports real, post-zoom pixels, the same coordinate space
+   as documentElement.clientHeight, so the ratio between them is unit-agnostic
+   and needs no correction for how `zoom` rescales the logical grid underneath
+   (<html> itself is not zoomed — the zoom is on body). Reflowing at a new
+   scale shifts the content height a little (text re-wraps against a different
+   logical width), so this iterates to converge rather than trusting one pass.
+
+   The target is documentElement.clientHeight, NOT window.innerHeight:
+   innerHeight counts the space a horizontal scrollbar occupies, so fitting to
+   it lands the content a scrollbar's width too tall, which raises a vertical
+   scrollbar, which steals width, which raises a horizontal one — the two feed
+   each other and the page ends up scrolling in both directions. clientHeight
+   is the real content box, so the fit converges instead. */
+const UI_SCALE_MIN = 0.7;
+const UI_SCALE_MAX = 1.8;
+
+function fitUiScale() {
+  const footer = document.querySelector(".site-footer");
+  if (!footer) return;
+  // Energy Flows is the deliberate exception: #sankeySvg's own height is
+  // already viewport-derived (a clamp() on 100vh), so its content grows to
+  // fill the window on its own. Measuring it here would chase a target that
+  // moves with the scale and just run the whole UI up to UI_SCALE_MAX.
+  if (document.getElementById("view-energy-flows").classList.contains("active")) return;
+
+  const root = document.documentElement;
+  let scale = parseFloat(getComputedStyle(root).getPropertyValue("--ui-scale")) || 1;
+
+  for (let pass = 0; pass < 6; pass++) {
+    const bottom = footer.getBoundingClientRect().bottom;
+    if (bottom <= 0) return;  // not laid out yet (hidden tab, pre-paint)
+    // The 0.995 leaves the fitted content a hair inside the window: land it
+    // exactly on the edge and rounding can hand us a scrollbar anyway.
+    const ratio = (root.clientHeight * 0.995) / bottom;
+    if (Math.abs(ratio - 1) < 0.004) break;
+    const next = Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, scale * ratio));
+    if (next === scale) break;  // clamped — no point iterating further
+    scale = next;
+    root.style.setProperty("--ui-scale", String(scale));
+  }
+
+  // Re-drive the canvases (see resizeChartsToContainers) — never inline here,
+  // where the `zoom` change has not been reflowed and the container still
+  // measures at its old size. Three passes, because there are three moments
+  // that can leave a canvas mis-sized: the frame after the change, whenever
+  // Chart.js's own ResizeObserver answers the resize we just did, and later
+  // still when a chart is first built from model data that has only just
+  // arrived. Each pass is idempotent, so the cost of the extra ones is a
+  // measurement.
+  requestAnimationFrame(() => finishFit(scale));
+  clearTimeout(fitUiScale._settle);
+  clearTimeout(fitUiScale._settleLate);
+  fitUiScale._settle = setTimeout(() => finishFit(scale), 150);
+  fitUiScale._settleLate = setTimeout(() => finishFit(scale), 600);
+}
+
+/* Size the canvases, then check our work one frame later. Chart.js answers our
+   resize with a ResizeObserver callback of its own, and that callback can
+   re-apply its real-vs-logical mis-measurement on top of what we just set, so
+   the second call is what makes the size that survives ours. Idempotent when
+   nothing moved. */
+function finishFit(scale) {
+  resizeChartsToContainers();
+  requestAnimationFrame(() => {
+    resizeChartsToContainers();
+    reportUiFit(scale);
+  });
+}
+
+/* ---------- Chart sizing under --ui-scale ----------
+   Every chart is created with `responsive: false` and sized from here instead,
+   because Chart.js's own sizing is wrong whenever --ui-scale isn't 1: it reads
+   the container in real (post-zoom) pixels and then writes that number as the
+   canvas's CSS width, which is in logical ones. The error is exactly the scale
+   factor — a 1727px-wide card got a 1554px canvas at 0.9 (1727 x 0.9).
+
+   That went unnoticed for as long as the scale was fixed at 0.9, because a
+   canvas that is too SMALL just leaves a margin inside its card. Above 1.0 the
+   same error inverts: the canvas is wider than the card, and since .panel is
+   min-width:0 it doesn't stretch the card, it paints over the chart next to it
+   and drags the page's scrollWidth out past the window.
+
+   Leaving `responsive: true` and merely correcting afterwards was not enough.
+   Chart.js's ResizeObserver answers every size change — including ours — so it
+   would re-apply its own mis-measurement on top of the correction, and which
+   of the two landed last came down to timing (roughly one load in five went
+   out overflowing). With its observer off there is no competing writer.
+
+   The target is the wrapper's getBoundingClientRect() divided by the scale,
+   not its clientWidth/clientHeight: both nominally give the logical size, but
+   clientWidth read in the same turn as a `zoom` change can still answer from
+   the pre-change layout — 1727 for a card that was really 1181, sizing the
+   canvas 546px over its card. The rect stays correct across the change. */
+function sizeChartToContainer(id) {
+  const chart = charts[id];
+  const canvas = document.getElementById(id);
+  if (!chart || !canvas || typeof chart.resize !== "function") return;
+  const wrap = canvas.parentElement;
+  if (!wrap) return;
+  const rect = wrap.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;  // hidden tab — nothing to size yet
+  const scale = parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue("--ui-scale")
+  ) || 1;
+  // A canvas's bitmap has to be sized in DEVICE pixels, and `zoom` is a
+  // multiplier on top of devicePixelRatio that Chart.js cannot see: it asks
+  // the platform for window.devicePixelRatio, gets 1 on an ordinary display,
+  // and allocates a bitmap 1:1 with the canvas's logical width — which the
+  // browser then stretches over (width x scale) real pixels. Below 1.0 that
+  // downscales and looks fine (it is effectively supersampled), which is why
+  // the old fixed 0.9 never showed it; above 1.0 it is a visibly soft chart.
+  // Multiplying the ratio by the scale allocates the bitmap at the size the
+  // chart is really painted at.
+  if (chart.options) {
+    chart.options.devicePixelRatio = (window.devicePixelRatio || 1) * scale;
+  }
+  chart.resize(rect.width / scale, rect.height / scale);
+}
+
+function resizeChartsToContainers() {
+  Object.keys(charts).forEach(sizeChartToContainer);
+}
+
+/* Create a chart and give it its size in the same turn. With responsive:false
+   Chart.js would otherwise keep the canvas's default 300x150 attribute size;
+   sizing here, before anything paints, means there is no wrong first frame. */
+function newSizedChart(id, ctx, config) {
+  const chart = new Chart(ctx, config);
+  charts[id] = chart;
+  sizeChartToContainer(id);
+  return chart;
+}
+
+/* Readable from devtools (or --dump-dom) as data-ui-fit on <html>: the scale
+   that was settled on and the measurements behind it. scrollH/scrollW over
+   clientH/clientW is the overflow check — equal means the page needs no
+   scrollbar in that axis — and each canvas is reported against the card it
+   has to stay inside. */
+function reportUiFit(scale) {
+  const root = document.documentElement;
+  const footer = document.querySelector(".site-footer");
+  let worst = 0;
+  Object.keys(charts).forEach((id) => {
+    const cv = document.getElementById(id);
+    if (!cv || !cv.parentElement || !cv.parentElement.clientWidth) return;
+    worst = Math.max(worst, cv.clientWidth - cv.parentElement.clientWidth);
+  });
+  root.dataset.uiFit = [
+    "scale=" + scale.toFixed(3),
+    "footerBottom=" + Math.round(footer.getBoundingClientRect().bottom),
+    "clientH=" + root.clientHeight,
+    "scrollH=" + root.scrollHeight,
+    "clientW=" + root.clientWidth,
+    "scrollW=" + root.scrollWidth,
+    "chartOverflowPx=" + worst,
+  ].join(" ");
+}
+
+/* Each tab carries its own chart height (.chart-wrap-duo vs -duo-lg vs -lg vs
+   plain .chart-wrap), so the content's natural height — and therefore the
+   scale that fits it — changes with the active tab, not just with the
+   window. */
+function refitViewport() {
+  fitUiScale();
   if (sankeyDataByYear && document.getElementById("view-energy-flows").classList.contains("active")) {
     renderSankey(sankeyDataByYear[currentSankeyYear]);
   }
+}
+
+window.addEventListener("resize", refitViewport);
+
+// Tabs and sub-tabs refit too, but without refitViewport's Sankey re-render:
+// these listeners are registered after the switching ones above, so the view
+// has already changed by the time they run, and the Energy Flows handler up
+// there re-renders the Sankey itself. Switching TO Energy Flows leaves the
+// scale alone (fitUiScale skips that view), and switching away from it leaves
+// a hidden Sankey that its own handler redraws next time it is shown.
+[".pill-tab:not(.disabled)", ".subtab:not(.disabled)"].forEach((sel) => {
+  document.querySelectorAll(sel).forEach((el) => {
+    el.addEventListener("click", fitUiScale);
+  });
 });
 
 /* ---------- Initial load ---------- */
 setScenario(1);
+
+// Fit on first paint so the layout is right immediately, then again once the
+// webfonts land, since a font swapping in changes the measured text height
+// and with it the scale that fits. Both passes re-drive the chart sizes, so
+// the second one correcting the first is expected, not a race.
+requestAnimationFrame(refitViewport);
+if (document.fonts && document.fonts.ready) {
+  document.fonts.ready.then(refitViewport);
+}

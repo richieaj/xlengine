@@ -2,52 +2,137 @@
 html, body { min-height: 100%; margin: 0; }
 :root {
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
-  --head: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  --head: "Ranade", "Space Grotesk", "IBM Plex Sans", sans-serif;
   --ink: #101114;
-  --muted: #6a707c;
+  /* Small muted text sits directly on --bg in places (.sankey-legend,
+     .pathway-chip-label) as well as on white cards, so it is checked against
+     both: 5.20:1 on the ground, 5.64:1 on white. */
+  --muted: #5F6875;
   --muted-2: #8a8f9a;
-  --line: #e2e2dd;
-  --bg: #f6f6f4;
-  --accent: #1f4bff;
-  /* Control deck. The data above sits on warm paper (--bg); the controls sit
-     on a light neutral-grey band, matching the reference EU-Calc pathway
-     panel. Everything inside the deck derives from these tokens, which is
-     why flipping the band light or dark is a handful of values rather than
-     a rewrite. */
-  --deck-bg: #EBEBE8;
-  --deck-panel: #E0E0DC;
-  --deck-line: #C6C6C1;
+  --line: #E1E4E7;
+  /* The tab row's divider gets a colour of its own rather than the neutral
+     --line: it is the one rule that separates navigation from data, so it is
+     allowed to read as deliberate. A faded-denim blue — related to the blues
+     already in the ramp (--lvl-2 / --accent) without being either of them, so
+     it looks chosen rather than borrowed. Kept as a token because this is the
+     kind of value that gets dialled: darker for more presence, or toward
+     #A8C0D8 for a whisper. */
+  --rule-accent: #8FAEC9;
+  /* The GHG gauge's box. A light blue in its own right rather than a tint of
+     --rule-accent (which it was: color-mix 80% denim + white = #A5BED4) —
+     mixing a desaturated denim toward white only ever gives a pale grey-blue,
+     never a light blue that still reads blue. It therefore no longer tracks
+     the rule colour; that is deliberate, and why it is its own token.
+     Dark labels sit on it at 13.4:1, and the gauge's deeper track reads
+     against it at 2.97:1. */
+  --gauge-box: #C8E1F5;
+  /* ── Effort ramp (ambition level 1→4) ────────────────────────────────────
+     ONE definition, referenced everywhere the ramp appears: the lever
+     fill/thumb, the Predefined-scenarios dots, the pathway chip, the deck's
+     top rule, and the Insights direction badges. It used to be eight
+     scattered hex literals across two Python files and this stylesheet, and
+     they had already drifted — LEVEL_FILL's level 1 was a bright cyan
+     (#29B6C7) while every other level-1 indicator was slate (#9AA3B2), so a
+     lever at rest was the only cyan thing in the interface.
+     Now in EU-Calc's own grey/blue/green register (the reference tool this
+     project is modelled on), replacing first the original electric-blue/mint
+     ramp and then a navy/forest one: grey at rest, through two blues, to
+     green at all-out effort.
+
+     Two constraints these values satisfy, both measured:
+       - Luminance DARKENS monotonically (0.357 > 0.283 > 0.129 > 0.122), so
+         the level still reads if colour is lost. An earlier pass at this
+         register did not (grey was lighter than the blue two steps up).
+       - --lvl-3 and --lvl-4 carry WHITE text (.cdh-pathway-btn.active, the
+         Insights direction badges), so both clear 4.5:1 against white: 5.86:1
+         and 6.12:1. The obvious brighter picks failed — #2E7EB8 gave 4.38:1
+         and a #4E9F4E green only 3.28:1.
+
+     Level 5 exists only for lv49 ("Fuel Switching Choices - Iron and Steel"),
+     the one lever in the workbook that goes that far.
+     sidebar.py's LEVEL_FILL emits `var(--lvl-N)` rather than hex, so these
+     stay the single source of truth. */
+  --lvl-1: #9AA2AC;
+  --lvl-2: #5B96C9;
+  --lvl-3: #29699A;
+  --lvl-4: #25702C;
+  --lvl-5: #25702C;
+  /* The base layer — the ground the whole page sits on. Pure white: the light
+     grey that sat here (#F4F6F7, and #F4EFE3 beige before that) made the
+     panels read as dull, so the page is now one bright white plane and every
+     card/panel/box is separated by its 1px --line border alone rather than by
+     a change of surface. That is EU-Calc's own arrangement too — their
+     content plane is white throughout.
+     --surface-2 exists because --bg was doing two jobs: the page ground AND
+     the faint fill behind hovers and chips (.menu-btn:hover, .drawer-item:hover,
+     .insights-group-label). Those need a tint to be visible at all, so they
+     take --surface-2 and stop tracking the ground. */
+  --bg: #FFFFFF;
+  --surface-2: #F1F3F5;
+  --accent: #29699A;
+  /* Control deck. Everything inside the deck derives from these tokens, which
+     is why re-colouring the band is a handful of values rather than a rewrite.
+
+     The deck keeps a grey band even though the page ground is white, matched
+     to EU-Calc's own left-hand control sidebar: their controls sit on light
+     neutral grey against a white content plane, which is exactly the
+     relationship here — and it is now the only surface change left on the
+     page, so it is what tells you the controls are not more data. Neutral
+     (equal R/G/B) rather than the cool-tinted grey used earlier; theirs is
+     neutral and it reads cleaner against pure white.
+
+     --deck-panel is no longer painted by the group lists — those lost their
+     boxes and sit on the band directly. It survives for the two things in the
+     deck that are genuinely raised: the Predefined-scenarios buttons and the
+     sub-lever flyout rail. */
+  --deck-bg: #EDEDED;
+  --deck-panel: #FFFFFF;
+  --deck-line: #D4D4D4;
   --deck-row-line: rgba(16,17,20,.10);
   --deck-ink: #14161A;
   --deck-ink-2: #454B54;
-  /* Darkened until the deck's small print (#status-chip, .cdh-pathway-label
-     at 10.5px) clears 4.5:1 against --deck-panel, which is the lowest-
-     contrast surface it lands on. */
-  --deck-muted: #6E7580;
+  /* Checked against the BAND, not the panel: the band is the darker of the
+     two surfaces this text lands on, so it is the binding constraint. 4.76:1
+     on the band, 5.44:1 on the panel. (A comment here once claimed 4.5:1 for
+     a value that actually measured 3.51:1 — hence the habit of recording the
+     measured number.) */
+  --deck-muted: #5F6875;
   /* Page insets, shared so the full-bleed bands (masthead, control deck) can
      cancel them exactly instead of hard-coding matching numbers. */
   --page-x: 24px;
   --page-top: 12px;
   /* Whole-UI scale. The stylesheet is px-based, so a root font-size change would not
      shrink it; `zoom` scales layout, text, borders and canvases together. Change this
-     one number to resize the entire interface. */
+     one number to resize the entire interface.
+
+     This is only the STARTING value now. Every chart height here is a fixed px
+     number tuned against a ~1080p window, so on a bigger monitor the whole
+     interface used to render at that same physical size and leave a band of
+     dead page background below the footer (the footer used to carry a "best
+     viewed in 1920 x 1080" note covering for exactly this, since removed).
+     dashboard.js's fitUiScale()
+     measures where the footer actually lands and overrides this value on the
+     root element until the content's own bottom meets the bottom of the
+     window — so the UI grows into a large monitor and shrinks onto a small
+     one. Width needs no equivalent: every column here is already fluid and
+     fills whatever it is given. */
   --ui-scale: 0.9;
 }
 body {
-  font-family: "IBM Plex Sans", -apple-system, "Segoe UI", Arial, sans-serif;
+  font-family: "Ranade", "IBM Plex Sans", -apple-system, "Segoe UI", Arial, sans-serif;
   background: var(--bg);
   color: var(--ink);
   zoom: var(--ui-scale);
 }
 a { text-decoration: none; color: inherit; }
 
-/* header -> .page-grid (Insights rail beside the tab row/KPI cards/charts)
-   -> Custom Pathways (.control-deck-h, full-width again, same technique as
-   the masthead) -> footer, in normal document order. .page-main (the
-   grid's main column) is plain flow and scrolls with the page; only
-   .pathway-rail scrolls internally, and only once its own content outgrows
-   the viewport (see .pathway-rail) — min-height here just keeps a short tab
-   from leaving the footer stranded above the bottom of the window. */
+/* header -> .page-grid (tab row/KPI cards/charts, with the Insights card in
+   a second column to their right) -> Custom Pathways (.control-deck-h,
+   full-width again, same technique as the masthead) -> footer, in normal
+   document order. Everything is plain in-flow content that scrolls with the
+   page; the Insights card is sticky but scrolls nothing internally.
+   min-height here just keeps a short tab from leaving the footer stranded
+   above the bottom of the window. */
 .page { min-height: calc(100vh / var(--ui-scale)); display: flex; flex-direction: column; padding: var(--page-top) var(--page-x) 0; }
 
 /* ── Site masthead ──────────────────────────────────────────────────────
@@ -59,9 +144,12 @@ a { text-decoration: none; color: inherit; }
 .site-banner {
   flex: none;
   margin: calc(-1 * var(--page-top)) calc(-1 * var(--page-x)) 8px;
-  padding: 11px var(--page-x);
-  background: #fff;
-  border-bottom: 1px solid var(--line);
+  padding: 10px var(--page-x);
+  /* Same band colour as the footer, so the page is bracketed by one dark grey
+     top and bottom (and the same colour the menu drawer's own header uses).
+     EU-Calc's masthead is a dark grey bar too. No border-bottom: the colour
+     change is the edge. */
+  background: #3F4247;
   /* 1fr / auto / 1fr keeps the product name optically centred in the window
      regardless of what sits in the side slots. */
   display: grid;
@@ -70,13 +158,26 @@ a { text-decoration: none; color: inherit; }
   gap: 12px;
 }
 .site-banner-side { min-width: 0; }
-.site-banner-logo { height: 26px; width: auto; display: block; }
+.site-banner-logo { height: 36px; width: auto; display: block; }
+/* Both marks sit on a white plate on the dark band. The NITI one is
+   navy-and-gold artwork with no white variant in img/, and filtering an
+   official emblem to white would throw away its gold. The ACPET one is a PNG
+   with no alpha channel at all (RGB, verified from the header) despite its
+   "_White" name — its white is painted in, so it renders as a white rectangle
+   on any dark surface no matter what; plating it makes that rectangle look
+   chosen and matches the one opposite. */
+.site-banner-logo-plated {
+  background: #fff;
+  padding: 3px 7px;
+  border-radius: 6px;
+  box-sizing: content-box;
+}
 .site-banner-title {
   font-family: var(--head);
   font-size: 18.5px;
   font-weight: 700;
   letter-spacing: .045em;
-  color: var(--ink);
+  color: #fff;   /* 10.2:1 on the band */
 }
 
 /* ── Masthead menu ────────────────────────────────────────────────────── */
@@ -84,12 +185,16 @@ a { text-decoration: none; color: inherit; }
 .menu-btn {
   width: 34px; height: 30px; display: flex; align-items: center; justify-content: center;
   border: 1px solid transparent; border-radius: 8px; background: transparent;
-  color: var(--muted); cursor: pointer; transition: background .14s, color .14s, border-color .14s;
+  /* Light-on-dark now that the masthead is a dark band — var(--muted) here
+     was a mid grey chosen for a white bar and would have all but vanished. */
+  color: #C3C7CC; cursor: pointer; transition: background .14s, color .14s, border-color .14s;
 }
 .menu-btn svg { width: 19px; height: 19px; }
-.menu-btn:hover { background: var(--bg); color: var(--ink); border-color: var(--line); }
-.menu-btn[aria-expanded="true"] { background: var(--bg); color: var(--ink); border-color: var(--line); }
-.menu-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* A translucent white wash rather than a light fill — the same treatment the
+   drawer's own close button uses on its dark header. */
+.menu-btn:hover { background: rgba(255,255,255,.14); color: #fff; border-color: transparent; }
+.menu-btn[aria-expanded="true"] { background: rgba(255,255,255,.14); color: #fff; border-color: transparent; }
+.menu-btn:focus-visible { outline: 2px solid #8FC2E8; outline-offset: 2px; }
 
 /* Right-hand slide-in drawer for the site menu. Fixed to the viewport, so
    opening it costs the page no height and every tab keeps its no-scroll fit.
@@ -108,7 +213,7 @@ a { text-decoration: none; color: inherit; }
 /* Dark header holding the close control, matching the masthead's height so
    the two line up when the drawer is open. */
 .drawer-head {
-  flex: none; height: 53px; background: #39404B;
+  flex: none; height: 53px; background: #3F4247;
   display: flex; align-items: center; justify-content: flex-end; padding: 0 12px;
 }
 .drawer-close {
@@ -124,16 +229,30 @@ a { text-decoration: none; color: inherit; }
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 13px 20px; font-size: 13.5px; font-weight: 500; color: var(--ink);
 }
-.drawer-item:hover { background: var(--bg); color: var(--accent); }
+.drawer-item:hover { background: var(--surface-2); color: var(--accent); }
 .drawer-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .drawer-icon { width: 13px; height: 13px; flex: none; color: var(--muted-2); }
 .drawer-item:hover .drawer-icon { color: var(--accent); }
 
 /* ── Tab row ────────────────────────────────────────────────────────── */
-.tab-row { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; flex-wrap: wrap; }
+/* Hairline under the tab row, separating navigation from the data below it.
+   Once the cards and chart panels lost their borders there was nothing between
+   the tab row and the content — just open space — and the row read as floating
+   above the charts rather than heading them.
+   It spans the main column only, not the window: the Insights card is a
+   sibling column whose top aligns with this row, so a full-bleed rule would
+   cut straight across it. The masthead's own border-bottom and the deck's
+   accent rule are the same device at the page's other two seams. */
+.tab-row {
+  flex: none; display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+  padding-bottom: 9px;
+  margin-bottom: 11px;
+  border-bottom: 1px solid var(--rule-accent);
+}
 
 /* ── Pill tab selector ──────────────────────────────────────────────── */
-.pill-tabs { display: flex; gap: 2px; background: #e6e6e2; border-radius: 9px; padding: 3px; width: fit-content; max-width: 100%; flex-wrap: wrap; flex: none; }
+.pill-tabs { display: flex; gap: 2px; background: #E7EAEC; border-radius: 9px; padding: 3px; width: fit-content; max-width: 100%; flex-wrap: wrap; flex: none; }
 .pill-tab { padding: 6px 13px; border-radius: 7px; font-size: 12.5px; font-weight: 400; color: var(--muted); white-space: nowrap; cursor: pointer; }
 .pill-tab.active { font-weight: 600; color: var(--ink); background: #fff; box-shadow: 0 1px 2px rgba(16,17,20,.12); }
 .pill-tab:hover:not(.active) { color: var(--ink); }
@@ -146,23 +265,25 @@ a { text-decoration: none; color: inherit; }
   background: #fff; border: 1px solid var(--line); border-radius: 999px;
   padding: 6px 14px; font-size: 12px;
 }
-.pathway-chip-dot { width: 8px; height: 8px; border-radius: 50%; background: #9AA3B2; flex: none; }
-.pathway-chip[data-level="1"] .pathway-chip-dot { background: #9AA3B2; }
-.pathway-chip[data-level="2"] .pathway-chip-dot { background: #5468DC; }
-.pathway-chip[data-level="3"] .pathway-chip-dot { background: #3B62FF; }
-.pathway-chip[data-level="4"] .pathway-chip-dot { background: #00C08B; }
+.pathway-chip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--lvl-1); flex: none; }
+.pathway-chip[data-level="1"] .pathway-chip-dot { background: var(--lvl-1); }
+.pathway-chip[data-level="2"] .pathway-chip-dot { background: var(--lvl-2); }
+.pathway-chip[data-level="3"] .pathway-chip-dot { background: var(--lvl-3); }
+.pathway-chip[data-level="4"] .pathway-chip-dot { background: var(--lvl-4); }
 .pathway-chip[data-level="custom"] .pathway-chip-dot { background: #C8D0DC; }
 .pathway-chip-label { font: 500 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 .pathway-chip-value { font-family: var(--head); font-size: 12.5px; font-weight: 600; color: var(--ink); }
 
-/* ── Page grid: Insights rail + tab row/KPI cards/charts column ────────── */
+/* ── Page grid: tab row/KPI cards/charts column + Insights card ────────── */
 /* Replaces the old .content-row flex row. Covers the tab row + KPI cards +
    charts ONLY — Custom Pathways (.control-deck-h) renders after this grid
-   closes, full-width, so the rail ends where the charts end rather than
-   running alongside it too. margin-left cancels .page's own left inset the
-   same way .site-banner's full-bleed trick does, so the rail's blue reaches
-   the true left edge of the window; the right edge stays at the normal
-   inset, unbled.
+   closes, full-width, so the column ends where the charts end rather than
+   running alongside it too.
+   The Insights panel is the SECOND track (and the second child in base.py):
+   it sits to the right of the charts. It used to be a full-bleed blue column
+   on the left, which is why this grid carried a negative margin-left to
+   cancel .page's own inset — that's gone with the bleed, so both edges now
+   sit on the normal page inset like every other section.
    flex:0 0 auto (natural height) — a flex-grow cascade down through
    .main-col/.view.active/.chart-duo into the actual chart-wrap tiers was
    tried here (so charts could grow to fill leftover viewport height), but
@@ -172,7 +293,7 @@ a { text-decoration: none; color: inherit; }
    further down are simply bigger FIXED values now instead — bigger than
    the original tuning, but a fixed size can't ever mismatch its own
    container the way a capped-partway-through-a-growth-chain one can. */
-.page-grid { flex: 0 0 auto; display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 16px; margin-left: calc(-1 * var(--page-x)); }
+.page-grid { flex: 0 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 268px; gap: 14px; align-items: start; }
 /* Energy Flows only (dashboard.js toggles both this and #pathway-rail's
    [hidden]) — collapses the rail's own column so main gets the width back,
    the grid equivalent of the old flex row's "hide a sibling" trick. */
@@ -180,46 +301,81 @@ a { text-decoration: none; color: inherit; }
 .page-main { min-width: 0; display: flex; flex-direction: column; }
 .main-col { flex: 0 0 auto; min-width: 0; }
 
-/* Stretches to match .page-main's natural height (align-items:stretch is
-   the grid default — left implicit rather than stated), same as
-   .change-sidebar used to do — .rail-insights below has flex:1, so on a
-   short tab the extra room goes to it rather than leaving dead blue
-   space. No outer margin/left radius/shadow: it's meant to read as a real
-   edge-to-edge column in the layout, not a floating card. */
+/* A card, not a column. This was a full-height blue gradient panel bleeding
+   off the left edge of the window — one flat slab of colour carrying small
+   black text, which is what made it read as monotonous next to the white
+   cards it sat beside. It's now the same card language as .panel/.stat-card
+   (white, 1px --line border, 10-12px radius) so it belongs to the same
+   family, with its own identity carried by detail rather than by a wash of
+   colour: an accent hairline along the top, a tinted icon tile in the
+   header, and a rule under it separating header from content.
+   align-self:start (from .page-grid's align-items:start) rather than the
+   grid's default stretch: a card should be as tall as its content, not as
+   tall as whatever chart sits next to it. sticky keeps it in view while the
+   page scrolls.
+
+   Do NOT give this card a max-height derived from --ui-scale (a
+   `calc(100vh / var(--ui-scale))` cap plus overflow-y:auto was tried here and
+   reverted). fitUiScale() computes --ui-scale FROM the content's height, so a
+   height that reads --ui-scale back closes the loop: the two chase each other
+   and layout never settles. It doesn't degrade gracefully either — it hung
+   the page outright at 3440x1297 while staying fine at 1366x768, since
+   whether it converges depends on the numbers. Any cap here has to be a plain
+   px value, independent of both the scale and the viewport. Uncapped is fine
+   in practice: renderInsights() emits at most two groups and a handful of
+   lines, and if it ever did run long the card simply grows and the fit scales
+   the UI down to suit. */
 .pathway-rail {
-  position: sticky; top: 0;
+  position: sticky; top: var(--page-top);
   display: flex; flex-direction: column;
-  padding: 16px 16px 18px;
-  background: linear-gradient(165deg, #5CACEA 0%, #4A9AE0 100%);
-  border-radius: 0 12px 12px 0;
+  padding: 13px 15px 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(16,17,20,.04), 0 10px 26px -20px rgba(16,17,20,.28);
+  overflow: hidden;
+}
+/* The accent hairline. Sits inside the radius via the card's own overflow
+   clip, so it needs no matching corner values of its own. */
+.pathway-rail::before {
+  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--lvl-2) 100%);
 }
 .pathway-rail[hidden] { display: none; }
 
-/* Always rendered (dashboard.js calls renderInsights() on every recalc, no
-   open/close state any more) — flex:1 so it fills the whole rail (there's
-   no other block competing for space any more), which is what lets the
-   rail reach all the way down even when its own text is short. */
-/* Black text on the blue gradient, not white — clears ~6.4:1 against this
-   background (white only managed ~3:1 here, borderline even for the
-   headline), so this is a straightforward legibility win as well as what
-   was asked for. */
 .rail-insights { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+/* Header: tinted icon tile + label, over a full-width rule. The tile is what
+   gives the card a focal point now that the whole panel isn't coloured. */
 .rail-insights-head {
-  flex: none; display: flex; align-items: center; gap: 7px;
-  font: 700 10.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink);
-  margin-bottom: 10px;
+  flex: none; display: flex; align-items: center; gap: 9px;
+  font: 700 10.5px/1 var(--mono); letter-spacing: .09em; text-transform: uppercase; color: var(--ink);
+  padding-bottom: 10px; margin-bottom: 2px;
+  border-bottom: 1px solid var(--line);
 }
-.rail-insights-head svg { width: 14px; height: 14px; flex: none; }
-.rail-insights-body { flex: 1 1 auto; font-size: 12px; line-height: 1.55; color: var(--ink); }
-/* Small caps label + rule ahead of each group (lever changes vs. their
-   knock-on effect on the numbers) — the "line of segregation" that splits
-   what used to be one undifferentiated list into two legible groups. */
+.rail-insights-head svg {
+  width: 24px; height: 24px; flex: none; padding: 5px; border-radius: 7px;
+  background: rgba(41,105,154,.10); color: var(--accent);
+}
+.rail-insights-body {
+  flex: 1 1 auto; min-height: 0;
+  font-size: 12px; line-height: 1.55; color: var(--ink);
+}
+/* Small caps label ahead of each group (lever changes vs. their knock-on
+   effect on the numbers) — the "line of segregation" that splits what used to
+   be one undifferentiated list into two legible groups. The colours here were
+   rgba(ink) mixes picked to sit on the old blue panel; on white they resolve
+   to the page's own --muted/--line tokens, so the card matches the rest of
+   the UI instead of carrying its own private palette. The group label reads
+   as a chip now rather than a bordered heading — the header rule above it
+   already does the dividing, so a second full-width rule was just noise. */
 .insights-group-label {
+  display: inline-block;
   font: 700 9.5px/1 var(--mono); letter-spacing: .09em; text-transform: uppercase;
-  color: rgba(16,17,20,.55);
-  margin: 16px 0 8px; padding-bottom: 6px; border-bottom: 1px solid rgba(16,17,20,.16);
+  color: var(--muted);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px;
+  padding: 5px 9px; margin: 14px 0 4px;
 }
-.insights-group-label:first-child { margin-top: 0; }
+.insights-group-label:first-child { margin-top: 8px; }
 /* Each line gets its own divider too (padding+border, not a bottom margin),
    and the direction badge is a small filled chip instead of a bare glyph —
    reusing the same ramp colors as the effort-level chips elsewhere
@@ -227,7 +383,7 @@ a { text-decoration: none; color: inherit; }
    / "lowered" reads as a real visual distinction, not just a tiny arrow. */
 .insights-line {
   display: flex; align-items: flex-start; gap: 9px;
-  padding: 9px 0; border-bottom: 1px solid rgba(16,17,20,.12);
+  padding: 9px 0; border-bottom: 1px solid var(--line);
 }
 .insights-line:last-child { border-bottom: 0; padding-bottom: 0; }
 .insights-arrow {
@@ -235,8 +391,8 @@ a { text-decoration: none; color: inherit; }
   display: flex; align-items: center; justify-content: center;
   font-size: 9px; line-height: 1;
 }
-.insights-arrow-up { background: #3B62FF; color: #fff; }
-.insights-arrow-down { background: #00C08B; color: #04231a; }
+.insights-arrow-up { background: var(--lvl-3); color: #fff; }
+.insights-arrow-down { background: var(--lvl-4); color: #fff; }
 /* The changed/baseline figure in its own font (var(--head), the same one
    the big KPI card numbers use) rather than just bolding the body font —
    a real typographic contrast between "what happened" (body copy) and
@@ -249,15 +405,23 @@ a { text-decoration: none; color: inherit; }
 .stat-label { font: 500 10.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 .stat-value { font-family: var(--head); font-size: 22px; font-weight: 700; letter-spacing: -.02em; color: var(--ink); margin: 6px 0 3px; }
 .stat-note { font-size: 11px; color: var(--muted); }
-.stat-note-accent { color: #00845f; }
+.stat-note-accent { color: var(--lvl-4); }
 
 /* ── Panels (All Energy / Electricity duo charts) ──────────────────────── */
-.panel { min-width: 0; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px 8px; margin-bottom: 8px; }
+/* Chart containers carry no box. They were white cards with a 1px --line
+   border on a white page, so the border was the only thing drawing them; with
+   it gone the chart sits directly on the page, which is how the EU-Calc
+   reference presents its own charts (title, plot, nothing around them).
+   Padding stays — it is what keeps the plot off the page inset and its
+   neighbour. */
+.panel { min-width: 0; background: transparent; border: 0; border-radius: 0; padding: 10px 14px 8px; margin-bottom: 8px; }
 
 /* Energy Demand + Energy Supply: two equal compact panels, one row. They
    stack vertically once there isn't width for two readable charts side by
    side (each still needs room for its right-hand legend). */
-.chart-duo { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px; align-items: stretch; }
+/* Wider gap than the 10px used when each panel had its own border: with the
+   boxes gone, the gutter is the only thing separating two charts. */
+.chart-duo { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; margin-bottom: 8px; align-items: stretch; }
 .chart-duo .panel { margin-bottom: 0; }
 @media (max-width: 1080px) {
   .chart-duo { grid-template-columns: 1fr; }
@@ -287,8 +451,8 @@ a { text-decoration: none; color: inherit; }
 .chart-wrap { height: 400px; }                     /* Indicators/Costs: .card chrome, no KPI, has subtabs */
 
 /* ── Shared chart-grid/card (other 8 tabs) — same rounded v2 language ── */
-.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px; align-items: stretch; }
-.card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 11px 14px 9px; position: relative; }
+.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; margin-bottom: 8px; align-items: stretch; }
+.card { background: transparent; border: 0; border-radius: 0; padding: 11px 14px 9px; position: relative; }
 .card h3 { font-family: var(--head); font-size: 14px; font-weight: 600; margin: 0 0 2px; }
 .card .card-sub { font-size: 11.5px; color: var(--muted); margin: 2px 0 7px; }
 .card .changed-note { display: none; font-size: 10px; color: #a0761f; font-weight: 700; margin-left: 6px; text-transform: uppercase; letter-spacing: .04em; }
@@ -300,7 +464,7 @@ a { text-decoration: none; color: inherit; }
 .view { display: none; }
 .view.active { display: block; }
 
-.subtabs { display: flex; gap: 3px; background: #e6e6e2; border-radius: 8px; padding: 2px; margin-bottom: 6px; width: fit-content; max-width: 100%; flex-wrap: wrap; }
+.subtabs { display: flex; gap: 3px; background: #E7EAEC; border-radius: 8px; padding: 2px; margin-bottom: 6px; width: fit-content; max-width: 100%; flex-wrap: wrap; }
 .subtab { font-size: 12px; font-weight: 400; color: var(--muted); cursor: pointer; padding: 4px 11px; border-radius: 6px; }
 .subtab:hover:not(.active) { color: var(--ink); }
 .subtab.active { font-weight: 600; color: var(--ink); background: #fff; box-shadow: 0 1px 2px rgba(16,17,20,.12); }
@@ -311,18 +475,67 @@ a { text-decoration: none; color: inherit; }
 
 /* ── Sankey — Energy Flows tab ──────────────────────────────────────── */
 .sankey-toolbar { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 8px; flex-wrap: wrap; gap: 10px; }
-.year-tabs { display: flex; gap: 2px; background: #e6e6e2; border-radius: 9px; padding: 3px; }
+.year-tabs { display: flex; gap: 2px; background: #E7EAEC; border-radius: 9px; padding: 3px; }
 .year-btn { border: none; background: transparent; padding: 7px 13px; border-radius: 7px; font-size: 12px; font-weight: 500; color: var(--muted); cursor: pointer; transition: color .15s; }
 .year-btn:hover { color: var(--ink); }
 .year-btn.active { font-weight: 600; color: var(--ink); background: #fff; box-shadow: 0 1px 2px rgba(16,17,20,.12); }
 
-.sankey-card { position: relative; overflow: hidden; border-radius: 12px; padding: 14px 16px; background: #fff; border: 1px solid var(--line); }
+/* No overflow:hidden. It was here to clip the Sankey to the card's rounded
+   corners; the card has neither a radius nor a background any more, so all it
+   still did was slice the hover tooltip in half whenever the pointer was near
+   an edge — the tooltip is absolutely positioned inside this element.
+   (renderSankey's showTip also clamps the tooltip's own position, so the two
+   together keep it whole AND inside the plot.) */
+.sankey-card { position: relative; border-radius: 0; padding: 14px 16px; background: transparent; border: 0; }
 /* The Sankey is the headline view of the whole site, so it gets the space
    rather than being squeezed to keep the control deck above the fold. Sized
    off the viewport, not a magic number: renderSankey() lays out to the
    measured height and re-renders on resize, so there is nothing to keep in
    sync here. */
 #sankeySvg { width: 100%; height: clamp(400px, calc((100vh / var(--ui-scale)) - 300px), 820px); display: block; position: relative; }
+/* ── Sankey flow tracing ─────────────────────────────────────────────────
+   Hovering a node traces its whole chain (see renderSankey's trace()): the
+   links on that route get .is-traced, everything else .is-dimmed, and a dashed
+   overlay copy of each traced link gets .is-on so the route visibly runs.
+   The opacity values carry !important because the base stroke-opacity is set
+   as a presentation ATTRIBUTE by d3, and an attribute would otherwise win
+   over a class here. */
+.sankey-link { transition: stroke-opacity .18s ease; }
+.sankey-link.is-traced { stroke-opacity: .68 !important; }
+.sankey-link.is-dimmed { stroke-opacity: .07 !important; }
+
+.sankey-node, .sankey-label { transition: opacity .18s ease; }
+.sankey-node.is-dimmed, .sankey-label.is-dimmed { opacity: .22; }
+.sankey-node { cursor: crosshair; }
+
+/* Entry reveal. `forwards` is the load-bearing part: it holds
+   stroke-dashoffset at 0 once the animation ends, so a link's final state is
+   "fully drawn" by declaration. Nothing — an interrupted re-render, a missed
+   event, a thrown handler — can leave a flow stranded invisible, which is the
+   failure mode the d3-transition version of this actually shipped with.
+   renderSankey sets stroke-dasharray/-dashoffset and a per-link
+   animation-delay inline. */
+.sankey-reveal { animation: sankey-reveal .52s ease-out forwards; }
+@keyframes sankey-reveal { to { stroke-dashoffset: 0; } }
+
+.sankey-fade-in { animation: sankey-fade-in .32s ease-out backwards; }
+@keyframes sankey-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* The moving dashes. Only ever painted on a traced route, so nothing on the
+   page animates until the reader asks for it by hovering — a diagram that
+   shimmers permanently is a diagram nobody can read. */
+.sankey-flow { opacity: 0; transition: opacity .2s ease; }
+.sankey-flow.is-on { opacity: .5; animation: sankey-flow 1.2s linear infinite; }
+@keyframes sankey-flow { to { stroke-dashoffset: -36px; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .sankey-flow.is-on { animation: none; opacity: .32; }
+  /* renderSankey already skips adding these classes under reduced motion;
+     this is here so a stylesheet-only reading of the file is not misleading,
+     and in case the classes ever arrive by another route. */
+  .sankey-reveal, .sankey-fade-in { animation: none; }
+}
+
 .sankey-tooltip {
   position: absolute; pointer-events: none; z-index: 5; opacity: 0; transition: opacity .12s ease;
   background: #fff; color: var(--ink); padding: 9px 12px; border-radius: 8px;
@@ -330,6 +543,8 @@ a { text-decoration: none; color: inherit; }
   transform: translate(-50%, -120%); white-space: nowrap;
 }
 .sankey-tooltip.show { opacity: 1; }
+/* Flipped under the cursor when there is no room above (showTip decides). */
+.sankey-tooltip.is-below { transform: translate(-50%, 24%); }
 .sankey-tooltip b { color: var(--accent); }
 .sankey-total { font-size: 12px; color: var(--muted); font-weight: 600; background: #fff; border: 1px solid var(--line); padding: 7px 14px; border-radius: 999px; font-family: var(--mono); }
 .sankey-total b { color: var(--ink); }
@@ -346,13 +561,13 @@ a { text-decoration: none; color: inherit; }
   flex: none;
   margin: 6px calc(-1 * var(--page-x)) 0;
   padding: 6px var(--page-x);
-  background: #1b1d29;
-  color: #b6bcc8;
+  background: #3F4247;
+  color: #C3C7CC;
   font: 500 10.5px/1.4 var(--mono);
   text-align: center;
   letter-spacing: .01em;
 }
-.site-footer a { color: #7fa8ff; text-decoration: none; }
+.site-footer a { color: #8FC2E8; text-decoration: none; }
 .site-footer a:hover { text-decoration: underline; }
 
 /* ── Custom Pathways (control deck) ─────────────────────────────────────
@@ -371,17 +586,75 @@ a { text-decoration: none; color: inherit; }
   margin: 16px calc(-1 * var(--page-x)) 0;
   padding: 12px var(--page-x) 14px;
 }
-/* Section divider between the data above and the controls below, drawn as
-   the effort ramp itself — same four colors as the Key legend and the level
-   chips, so the rule carries the legend rather than decorating. */
-.control-deck-h::before {
-  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; border-radius: 1px;
-  background: linear-gradient(90deg, #9AA3B2 0%, #5468DC 34%, #3B62FF 67%, #00C08B 100%);
+/* ── GHG gauge along the deck's top edge ─────────────────────────────────
+   Replaces a decorative 2px effort-ramp gradient that sat here. Same job as
+   the divider (it marks where data ends and controls begin) but it now
+   carries a number: the pathway's 2047 emissions against a fixed 0-10 GtCO2
+   scale. Full-bleed via negative margins that cancel the deck's own top and
+   side padding, exactly as .site-banner does against .page. */
+.cdh-emissions {
+  display: flex; align-items: center; gap: 12px;
+  margin: -12px calc(-1 * var(--page-x)) 10px;
+  padding: 7px var(--page-x) 8px;
+  /* Light blue box, green meter — the thing being measured is greenhouse gas.
+     Labels stay DARK on it (13.4:1); white would be unreadable here.
+     Bordered in the tab rule's own denim, which ties the two blue rules on the
+     page together and, more practically, gives the box a real edge: without it
+     the band's top just changed colour against the white page with nothing
+     marking the boundary. Reads 1.71:1 against the box it outlines, 2.32:1
+     against the white above and 1.98:1 against the deck grey below — a
+     definite edge rather than a hard line. #7FA3C4 (1.96 / 2.65 / 2.26) or
+     #6E93B8 (2.38 / 3.22 / 2.75) if it wants more weight.
+     The side borders land on the window edges, since the band is full-bleed —
+     the negative side margins cancel the deck's own padding. */
+  background: var(--gauge-box);
+  border: 1px solid var(--rule-accent);
 }
+.cdh-emissions-label,
+.cdh-emissions-max {
+  font: 500 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--deck-ink); white-space: nowrap; flex: none;
+}
+/* 15px, not the 7px hairline this started as: the readout sits INSIDE the
+   fill, and a 10.5px label in a 7px bar spills its glyphs onto the light
+   track above and below, where white text is unreadable. The band has to be
+   taller than its own type. */
+.cdh-emissions-track {
+  position: relative; flex: 1 1 auto; height: 15px; min-width: 0;
+  /* The UNFILLED part has to contrast the green fill, or you cannot read how
+     full the bar is — that is the whole point of a meter. A pale track failed
+     exactly there: light green on pale blue measured 1.17:1. This deeper
+     denim gives 2.63:1 against the fill while still reading as a recess in
+     the lighter box around it (1.73:1). */
+  border-radius: 999px; background: #5E82A8;
+}
+.cdh-emissions-fill {
+  position: absolute; top: 0; bottom: 0; left: 0; width: 0;
+  border-radius: 999px; background: #A5E0A0;
+  transition: width .45s cubic-bezier(.16,.84,.44,1);
+}
+/* Rides the end of the fill, the way EU-Calc's own cumulative-emissions bar
+   labels its head. .is-inside flips it to the fill's left when the bar is
+   nearly full, so the number can't run off the track. */
+/* Rides the head of the fill, as EU-Calc's own cumulative-emissions bar does.
+   Default is just outside it in dark ink (for a fill too narrow to hold the
+   text); .is-inside tucks it within the fill in white, which is where it sits
+   for any normal value. dashboard.js picks between them by measuring the
+   fill's actual pixel width, not by guessing a percentage. */
+.cdh-emissions-value {
+  position: absolute; top: 50%; left: 0;
+  transform: translate(9px, -50%);
+  font: 700 10.5px/1 var(--head); color: var(--deck-ink); white-space: nowrap;
+  transition: left .45s cubic-bezier(.16,.84,.44,1);
+}
+/* Dark ink in both positions now: inside it sits on the light-green meter
+   (11.9:1) and outside it sits on the deeper denim track (4.5:1). The white
+   it used to use worked on the old blue fill and would fail on green. */
+.cdh-emissions-value.is-inside { transform: translate(calc(-100% - 9px), -50%); }
 .cdh-head { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin-bottom: 9px; flex: none; }
 .cdh-head-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 220px; }
 .cr-title { font-family: var(--head); font-size: 16px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; }
-#status-chip { font: 500 10.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--deck-muted); white-space: nowrap; }
+#status-chip { font: 500 10.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--deck-ink); white-space: nowrap; }
 #status-chip.recalculating { color: #96650F; }
 #status-chip.error { color: #C0392B; }
 
@@ -392,17 +665,17 @@ a { text-decoration: none; color: inherit; }
    same colors as .lg-lever/LEVEL_FILL), so picking a preset and
    reading what the levels mean happen in the same control. */
 .cdh-pathway { display: flex; align-items: center; gap: 10px; flex: none; }
-.cdh-pathway-label { font: 500 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--deck-muted); white-space: nowrap; }
+.cdh-pathway-label { font: 500 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--deck-ink); white-space: nowrap; }
 .cdh-pathway-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
 .cdh-pathway-btn {
   display: flex; align-items: center; gap: 7px;
   height: 30px; padding: 0 13px; border-radius: 8px; border: 1px solid var(--deck-line); background: var(--deck-panel);
-  color: var(--deck-ink-2); font: 600 11.5px/1 var(--head); white-space: nowrap; cursor: pointer;
+  color: var(--deck-ink); font: 600 11.5px/1 var(--head); white-space: nowrap; cursor: pointer;
   transition: background .12s, color .12s, border-color .12s, box-shadow .12s;
 }
 .cdh-pathway-btn-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .cdh-pathway-btn:hover { border-color: #6B7484; color: #fff; }
-.cdh-pathway-btn.active { background: #3B62FF; border-color: #3B62FF; color: #fff; box-shadow: 0 1px 4px rgba(59,98,255,.45); }
+.cdh-pathway-btn.active { background: var(--lvl-3); border-color: var(--lvl-3); color: #fff; box-shadow: 0 1px 3px rgba(35,73,120,.4); }
 
 /* Flexbox, not grid: the rail (see .lg-rail-col below) needs to be able to
    sit right next to WHICHEVER lever column was clicked, not always parked
@@ -425,24 +698,31 @@ a { text-decoration: none; color: inherit; }
    206px truncates even a five-letter label down to. Key's own content
    never had that problem since it was just a legend, no controls. */
 
-.lg-box { min-width: 0; background: var(--deck-panel); border: 1px solid var(--deck-line); border-radius: 10px; padding: 8px 12px 6px; overflow: hidden; }
-.lg-box-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-bottom: 4px; margin-bottom: 1px; border-bottom: 1px solid var(--deck-line); }
+/* No card chrome. Each group used to be a white rounded box with a border on
+   the grey band; it is now just a heading over a list of rows, sitting
+   directly on the band — the arrangement EU-Calc's own control sidebar uses.
+   --deck-panel is consequently no longer painted anywhere in the deck itself
+   (the Predefined-scenarios buttons and the flyout rail still use it). */
+.lg-box { min-width: 0; background: transparent; border: 0; border-radius: 0; padding: 2px 2px 4px; overflow: visible; }
+.lg-box-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-bottom: 3px; margin-bottom: 2px; }
 .lg-box-title { font: 600 10.5px/1.3 var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--deck-ink); display: flex; align-items: center; gap: 7px; }
 /* Group accent dot — ties each panel to what it controls: blue = demand,
    green = clean supply, slate = fossil, indigo = network. */
 .lg-box-title::before { content: ""; width: 7px; height: 7px; border-radius: 2px; background: var(--group-accent, var(--muted-2)); flex: none; }
-.lg-box-demand  { --group-accent: #5C7CFF; }
-.lg-box-clean   { --group-accent: #00C08B; }
-.lg-box-conv    { --group-accent: #9AA3B2; }
-.lg-box-network { --group-accent: #6B7FE8; }
-.lg-box-econ, .lg-box-costs, .lg-box-other { --group-accent: #7E8899; }
-.lg-box-avg { font: 400 10px/1 var(--mono); color: var(--deck-muted); white-space: nowrap; }
+.lg-box-demand  { --group-accent: var(--lvl-3); }
+.lg-box-clean   { --group-accent: var(--lvl-4); }
+.lg-box-conv    { --group-accent: var(--lvl-1); }
+.lg-box-network { --group-accent: var(--lvl-2); }
+.lg-box-econ, .lg-box-costs, .lg-box-other { --group-accent: var(--lvl-1); }
+.lg-box-avg { font: 400 10px/1 var(--mono); color: var(--deck-ink); white-space: nowrap; }
 
 .lg-subcats { display: flex; flex-direction: column; }
-.lg-subcat-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; border-top: 1px solid var(--deck-row-line); }
-.lg-subcat-row:first-child { border-top: none; }
-.lg-subcat-title { flex: 1; min-width: 0; font-size: 12.5px; color: var(--deck-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lg-subcat-count { font: 400 10px/1 var(--mono); color: var(--deck-muted); }
+/* Rules between rows removed with the boxes — spacing alone separates them,
+   as in the reference sidebar. (Flyout rows keep their own rules: those sit
+   on a white panel where a list needs the help.) */
+.lg-subcat-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+.lg-subcat-title { flex: 1; min-width: 0; font-size: 12.5px; color: var(--deck-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lg-subcat-count { font: 400 10px/1 var(--mono); color: var(--deck-ink); }
 /* Draggable lever — a native <input type=range> (drag the thumb, click the
    track, or arrow-key it while focused, all for free) laid transparently
    over a styled track+fill+thumb it actually drives. dashboard.js's
@@ -452,40 +732,79 @@ a { text-decoration: none; color: inherit; }
    Hovering/focusing shows the CURRENT value's own "Ambition level N: ..."
    note via .lever-tooltip (dashboard.js) when the lever carries data-descs
    — sourced from the Control sheet's own columns (see sidebar.py). */
-.lg-lever { position: relative; flex: none; width: 92px; height: 22px; --lg-lever-color: #29B6C7; }
+/* Restyled from a glossy candy slider to a flat, precise one. What made the
+   old control read as cheap was not the geometry so much as three effects
+   stacked on it: a radial-gradient "bubble" thumb with a specular highlight,
+   a saturated glow halo ringing it at all times, and a heavy inset shadow
+   pressed into the track. Those are consumer-app cues. Removed all three in
+   favour of flat fills, one hairline, and a shadow only where it signals
+   depth — the thumb sitting above the track.
+   The thumb is a white disc with the level's own colour as its ring rather
+   than a solid colour blob: it keeps the ramp legible at 14px, reads as a
+   precision control rather than a toy, and holds its edge against both the
+   grey deck panel it sits on and the fill running under it. */
+.lg-lever { position: relative; flex: none; width: 92px; height: 22px; --lg-lever-color: var(--lvl-1); }
 .lg-lever-track {
-  position: absolute; left: 0; right: 0; top: 50%; height: 7px; transform: translateY(-50%);
-  border-radius: 999px; background: var(--deck-line);
-  box-shadow: inset 0 1px 3px rgba(0,0,0,.22);
+  position: absolute; left: 0; right: 0; top: 50%; height: 4px; transform: translateY(-50%);
+  /* A touch darker than --deck-line now. The track used to sit on a white box
+     inside the band; with the boxes gone it sits on the band itself (#EDEDED),
+     where a #D4D4D4 track was too faint to read as a track. This value holds
+     up both there and on white in the flyout rail. */
+  border-radius: 999px; background: #C9C9C9;
+  box-shadow: inset 0 0 0 1px rgba(16,17,20,.05);
 }
 .lg-lever-fill {
   position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px;
   background: var(--lg-lever-color); width: 0%;
   transition: width .16s ease, background-color .16s ease;
 }
+/* Ticks sit on the unfilled track only in effect — the fill runs over them —
+   so they read as remaining stops rather than decoration. */
 .lg-lever-tick {
-  position: absolute; top: 50%; width: 3px; height: 3px; margin-left: -1.5px;
-  border-radius: 50%; background: var(--deck-bg); transform: translateY(-50%);
-  opacity: .5; pointer-events: none;
-}
-.lg-lever-thumb {
-  position: absolute; top: 50%; left: 0%; width: 18px; height: 18px; margin-left: -9px;
-  border-radius: 50%; border: 3px solid #fff;
-  background: radial-gradient(circle at 32% 28%,
-    color-mix(in srgb, var(--lg-lever-color) 45%, #fff) 0%, var(--lg-lever-color) 72%);
-  box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 0 0 3px color-mix(in srgb, var(--lg-lever-color) 35%, transparent);
-  transform: translateY(-50%);
-  transition: left .16s ease, background-color .16s ease, box-shadow .16s ease, transform .12s ease;
+  position: absolute; top: 50%; width: 2px; height: 2px; margin-left: -1px;
+  border-radius: 50%; background: rgba(16,17,20,.26); transform: translateY(-50%);
   pointer-events: none;
 }
-.lg-lever:hover .lg-lever-thumb { transform: translateY(-50%) scale(1.12); }
-.lg-lever.is-dragging .lg-lever-thumb {
-  transition: background-color .16s ease, box-shadow .16s ease;
-  transform: translateY(-50%) scale(1.2);
-  box-shadow: 0 1px 3px rgba(0,0,0,.35), 0 0 0 5px color-mix(in srgb, var(--lg-lever-color) 40%, transparent);
+.lg-lever-thumb {
+  position: absolute; top: 50%; left: 0%; width: 14px; height: 14px; margin-left: -7px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    inset 0 0 0 3px var(--lg-lever-color),
+    0 1px 2px rgba(16,17,20,.22),
+    0 0 0 1px rgba(16,17,20,.10);
+  transform: translateY(-50%);
+  transition: left .16s ease, box-shadow .16s ease;
+  pointer-events: none;
 }
+/* Hover/drag lift the thumb with shadow depth instead of scaling it — a
+   control that grows under the cursor is the other tell of a toy slider. */
+.lg-lever:hover .lg-lever-thumb {
+  box-shadow:
+    inset 0 0 0 3px var(--lg-lever-color),
+    0 2px 5px rgba(16,17,20,.26),
+    0 0 0 1px rgba(16,17,20,.14);
+}
+.lg-lever.is-dragging .lg-lever-thumb {
+  box-shadow:
+    inset 0 0 0 4px var(--lg-lever-color),
+    0 2px 6px rgba(16,17,20,.3),
+    0 0 0 1px rgba(16,17,20,.16);
+}
+/* Mixed (a bundled row whose levers genuinely disagree — see
+   updateLeverRow): a hollow thumb, i.e. the ring without a settled centre,
+   rather than the old triple-ring halo. */
+/* --surface-2, not --deck-bg or --deck-panel: both of those are white now, so
+   filling the thumb with either made "mixed" identical to the ordinary white
+   thumb. This has needed re-pointing every time the deck surfaces changed —
+   what it actually wants is "a tint that is clearly not white", which is what
+   --surface-2 is for. */
 .lg-lever.is-mixed .lg-lever-thumb {
-  box-shadow: 0 0 0 2px var(--deck-bg), 0 0 0 3.5px var(--lg-lever-color), 0 1px 3px rgba(0,0,0,.35);
+  background: var(--surface-2);
+  box-shadow:
+    inset 0 0 0 2px var(--lg-lever-color),
+    0 1px 2px rgba(16,17,20,.22),
+    0 0 0 1px rgba(16,17,20,.10);
 }
 .lg-lever-input {
   position: absolute; inset: 0; margin: 0; width: 100%; height: 100%;
@@ -494,7 +813,7 @@ a { text-decoration: none; color: inherit; }
 .lg-lever-input::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; opacity: 0; }
 .lg-lever-input::-moz-range-thumb { width: 16px; height: 16px; opacity: 0; border: 0; }
 .lg-lever-input::-moz-range-track { background: transparent; }
-.lg-lever:focus-within .lg-lever-track { outline: 2px solid #8FA5FF; outline-offset: 3px; }
+.lg-lever:focus-within .lg-lever-track { outline: 2px solid #7FB0DA; outline-offset: 3px; }
 
 /* One shared floating box (dashboard.js's initLeverTooltip), positioned
    above whichever dot is hovered/focused — same position:fixed + measured-
@@ -509,14 +828,25 @@ a { text-decoration: none; color: inherit; }
 .lever-tooltip[hidden] { display: none; }
 .lever-tooltip strong { font-weight: 700; }
 
+/* A multi-lever row's LABEL is a click target for its flyout too, not just the
+   chevron — reaching for a 15px chevron to see what a row bundles was the only
+   way in. dashboard.js adds .is-expandable to rows that have one, and binds
+   the same toggle to the title. The chevron stays: it carries the aria-expanded
+   state and the keyboard path, and it is what the arrow animates on.
+   Only the title is clickable, deliberately not the whole row — the row also
+   holds the lever, and a click there has to reach the slider. */
+.lg-subcat-row.is-expandable .lg-subcat-title { cursor: pointer; }
+.lg-subcat-row.is-expandable .lg-subcat-title:hover { color: var(--accent); }
+.lg-subcat-row.is-expandable:hover .lg-expand-btn { color: var(--deck-ink); }
+
 /* Chevron: opens the individual-lever flyout for a multi-lever sub-sector row. */
 .lg-expand-btn {
   flex: none; display: flex; align-items: center; justify-content: center;
   width: 15px; height: 15px; padding: 0; border: 0; background: transparent;
-  color: var(--deck-muted); cursor: pointer; border-radius: 4px;
+  color: var(--deck-ink); cursor: pointer; border-radius: 4px;
 }
 .lg-expand-btn:hover { color: var(--deck-ink); background: rgba(16,17,20,.06); }
-.lg-expand-btn svg { width: 11px; height: 11px; transition: transform .15s ease; }
+.lg-expand-btn svg { width: 11px; height: 11px; transition: transform .3s cubic-bezier(.16,.84,.44,1); }
 .lg-expand-btn[aria-expanded="true"] { color: var(--deck-ink); }
 .lg-expand-btn[aria-expanded="true"] svg { transform: rotate(90deg); }
 
@@ -538,31 +868,69 @@ a { text-decoration: none; color: inherit; }
 .lg-rail-col {
   flex: 0 0 0px; align-self: flex-start; overflow: hidden; min-width: 0;
   max-height: 260px;
-  transition: flex-basis .28s ease;
+  /* Eased out rather than linear-ish: fast off the mark, settling at the end,
+     so the columns beside it look like they are making room rather than being
+     shoved. */
+  transition: flex-basis .34s cubic-bezier(.16,.84,.44,1);
 }
 .lg-rail-col.is-open { flex-basis: 260px; }
 .lg-rail {
   height: 100%; min-width: 250px; box-sizing: border-box;
-  background: #fff; border: 1px solid var(--line); border-radius: 10px;
+  /* No card chrome, matching the group lists beside it. This is a real 5th
+     column of the lever grid rather than an overlay, so with the white card
+     gone it simply reads as one more column on the band. */
+  background: transparent; border: 0; border-radius: 0;
   overflow-y: auto; padding: 4px 12px 6px;
 }
 /* One block per multi-lever sub-sector, all sharing the rail above; exactly
    one is display:block at a time (dashboard.js's initLeverFlyouts). Each
    keeps its own header/close/rows — the rail itself supplies the card
    chrome (background/border), these are now plain content blocks. */
+/* display can't be transitioned, so the panel's own entrance is an animation
+   rather than a transition: it fades and slides in behind the rail that is
+   still widening, and its rows follow in a short stagger. That reads as the
+   list arriving rather than appearing fully-formed in a box that is still
+   growing. The stagger is capped at six rows — Renewable Generation has
+   eight levers and a delay per row would leave the last ones visibly late. */
 .lg-flyout { display: none; }
-.lg-flyout.is-open { display: block; }
+.lg-flyout.is-open { display: block; animation: flyout-in .3s cubic-bezier(.16,.84,.44,1) both; }
+@keyframes flyout-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: none; }
+}
+.lg-flyout.is-open .lg-flyout-row { animation: flyout-row-in .26s ease-out both; }
+.lg-flyout.is-open .lg-flyout-row:nth-child(1) { animation-delay: .06s; }
+.lg-flyout.is-open .lg-flyout-row:nth-child(2) { animation-delay: .10s; }
+.lg-flyout.is-open .lg-flyout-row:nth-child(3) { animation-delay: .14s; }
+.lg-flyout.is-open .lg-flyout-row:nth-child(4) { animation-delay: .18s; }
+.lg-flyout.is-open .lg-flyout-row:nth-child(5) { animation-delay: .22s; }
+.lg-flyout.is-open .lg-flyout-row:nth-child(n+6) { animation-delay: .26s; }
+@keyframes flyout-row-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
 .lg-flyout-head {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   font: 600 11px/1.3 var(--mono); letter-spacing: .05em; text-transform: uppercase;
-  color: var(--ink); padding: 7px 0 6px; border-bottom: 1px solid var(--line); margin-bottom: 1px;
+  color: var(--deck-ink); padding: 7px 0 6px; margin-bottom: 2px;
 }
 .lg-flyout-close {
   border: 0; background: transparent; font-size: 16px; line-height: 1; cursor: pointer;
-  color: var(--muted); padding: 0 2px;
+  color: var(--deck-ink); padding: 0 2px;
 }
 .lg-flyout-close:hover { color: var(--ink); }
-.lg-flyout-row { border-top: 1px solid var(--line); padding: 6px 0; gap: 10px; }
-.lg-flyout-row:first-child { border-top: 0; }
-.lg-flyout-name { flex: 1; min-width: 0; font-size: 12px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Rules gone here too — the flyout no longer sits on a white panel where a
+   list needed the help, it sits on the band with everything else. */
+.lg-flyout-row { padding: 6px 0; gap: 10px; }
+.lg-flyout-name { flex: 1; min-width: 0; font-size: 12px; color: var(--deck-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+
+/* Anyone who has asked their OS for less motion gets the same layout with the
+   movement removed — the flyout still opens, it just doesn't slide, stagger or
+   swing its chevron. */
+@media (prefers-reduced-motion: reduce) {
+  .lg-rail-col { transition: none; }
+  .lg-flyout.is-open,
+  .lg-flyout.is-open .lg-flyout-row { animation: none; }
+  .lg-expand-btn svg { transition: none; }
+}

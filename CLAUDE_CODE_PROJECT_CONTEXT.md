@@ -2858,7 +2858,7 @@ Two of the three logo files sitting unused in the top-level `img/` folder (`ACPE
 
 ### Real bug found: lever level caps were being ignored in the UI
 
-The segmented 1-4 button row was **hardcoded to always render 4 buttons** (`range(1, 5)`), regardless of a lever's real ceiling. The Control sheet actually caps some levers lower — confirmed via the golden test fixtures (`tests/golden/full/max-lv31.json` sets lv31 to 3, `over-lv31.json` tests clamping a value of 9 down to it) — "Growth of the Economy" (lv31) is capped at 3, and one of Buildings' six bundled levers (lv40, "Growth of floorspace") is also capped at 3 even though its five siblings go to 4. `setLeverLevel()` in `dashboard.js` already clamped correctly (`Math.min(level, max)`) — only the *rendering* was wrong, silently offering a 4th button that would immediately snap back to 3 if clicked. Fixed in `ui/pages/sidebar.py`: the shared quick-set row now uses `row_max = min(lv["max"] for lv in levers)`, and each flyout row uses its own lever's real `max` — this incidentally also fixed the previously-invisible per-lever cap on the Buildings bundle.
+The segmented 1-4 button row was **hardcoded to always render 4 buttons** (`range(1, 5)`), regardless of a lever's real ceiling. The Control sheet actually caps some levers lower — confirmed via the golden test fixtures (`tests/golden/full/max-lv31.json` sets lv31 to 3, `over-lv31.json` tests clamping a value of 9 down to it) — "Growth of the Economy" (lv31) is capped at 3, and one of Buildings' six bundled levers (lv40, "Growth of floorspace") is also capped at 3 even though its five siblings go to 4. `setLeverLevel()` in `dashboard.js` already clamped correctly (`Math.min(level, max)`) — only the *rendering* was wrong, silently offering a 4th button that would immediately snap back to 3 if clicked. **[SUPERSEDED 2026-09-08 — `min()` was the wrong rule and broke Buildings/Industry; see the next session's entry. It is `max()` now.]** Fixed in `ui/pages/sidebar.py`: the shared quick-set row now uses `row_max = min(lv["max"] for lv in levers)`, and each flyout row uses its own lever's real `max` — this incidentally also fixed the previously-invisible per-lever cap on the Buildings bundle.
 
 ### Chart growth: tried a dynamic flex-grow cascade, reverted to bigger fixed heights
 
@@ -2910,3 +2910,542 @@ Happened at least three times and cost real back-and-forth ("nothing changed!", 
 ### Not yet done
 
 - Responsive breakpoints (~1100px rail-collapses-to-horizontal-strip, ~700px single-column) from the original detailed rail spec were explicitly deferred pending review of the desktop layout, and haven't been revisited since the rail's shape changed twice more after that spec was written — re-scope before implementing, don't build against the old spec as-is.
+
+## Session Notes (2026-09-08) — Full UI pass: the interface now fits itself to the window instead of to 1920×1080; Chart.js was found to size canvases WRONGLY under CSS `zoom` (long-standing, latent); a bundled lever row's ceiling was `min()` of its members and held them back; Insights became a right-hand card; the whole palette moved onto EU-Calc's white/grey/green/blue with Ranade as the type face; boxes removed from the charts and the deck; the deck's top rule became a working GHG gauge. **Several decisions here were superseded within the same session — read "Where this session actually landed" at the end before trusting any step in the middle, and read the `--ui-scale` circular-dependency warning before touching any viewport-derived height.**
+
+Started from "isn't the UI dynamic for monitor resolutions? I have a huge monitor and it looks like this" (3440×1297 screenshot: content stopping ~65% down the window with a wide band of dead page background under the footer).
+
+### First attempt was in the WRONG DIRECTION — capped and centred the page. Reverted.
+
+Misread the ask as "it stretches too wide" and added `max-width: 2000px; margin: 0 auto` to `.page`. That is the opposite of what was wanted, and made the dead space worse. The user's own clarification, with an EU-Calc reference screenshot: *"the way it spans across my screen. it shouldnt held by a resolution restricted no"* — i.e. **fill the monitor**, don't cap to a chosen resolution. Reverted in full; there is no `max-width` on `.page` now, and none should be added.
+
+Two things worth keeping from that detour:
+
+- A plain px `max-width` inside the zoomed subtree renders at `value × --ui-scale` (2000px capped at ~1800 real px). Any fixed px length written against real screen pixels has to be divided by `--ui-scale`, exactly like `.page`'s existing `min-height: calc(100vh / var(--ui-scale))`. `vh`/`vw` resolve against the true viewport and need that division; percentages and `width:auto` compensate on their own and do not.
+- "Nothing changed!" recurred here for the reason already documented in the previous session's *stale Flask process* note. It cost several rounds again. `base.py` is baked into the running process at import time.
+
+### The actual problem, and the fix: `fitUiScale()`
+
+`dashboard.css` is px-based end to end and every `.chart-wrap*` height is a fixed number tuned against a ~1080p window (see the previous session's chart-growth section), with `--ui-scale` (`zoom` on `body`) as the single knob resizing the lot. Pinned at `0.9`, the interface rendered at that same *physical* size on every monitor — hence the dead band on anything bigger. The footer's "Best viewed in 1920 x 1080 resolution, scale: 100%" note was covering for precisely this.
+
+`fitUiScale()` in `dashboard.js` now measures instead of assuming: the footer is `.page`'s last child and `.page` is a flex column packed to the top, so **the footer's own bottom edge IS the content's bottom edge** (`.page`'s `min-height` stretches the container, never the footer's position). It iterates `--ui-scale` until that edge meets the bottom of the window. Runs on load, on `resize`, and on tab/sub-tab switches (each tab carries a different chart height, so the fitting scale differs per tab). Energy Flows is skipped — `#sankeySvg`'s height is already `100vh`-derived, so measuring it chases a target that moves with the scale and just runs the UI to `UI_SCALE_MAX`.
+
+Measured results, deterministic across repeated runs:
+
+| Window | Fitted `--ui-scale` |
+|---|---|
+| 3440×1297 | 1.271 |
+| 2560×1440 | 1.431 |
+| 1920×1080 | 1.042 |
+| 1366×768 | 0.707 |
+
+Clamped to `[0.7, 1.8]`. Below ~1280×720 it floors at 0.7 and the page scrolls rather than shrinking into illegibility. **Widths were left alone deliberately** — every column was already fluid; only the vertical axis was ever short.
+
+Two traps found while building it:
+
+1. **Measure against `documentElement.clientHeight`, NOT `window.innerHeight`.** `innerHeight` counts the space a horizontal scrollbar occupies, so fitting to it lands the content a scrollbar's width too tall → vertical scrollbar → steals width → horizontal scrollbar → the two feed each other and the page ends up scrolling in both axes. `clientHeight` is the real content box.
+2. `getBoundingClientRect()` reports **real (post-zoom)** pixels; `clientWidth`/`clientHeight`/`offsetWidth` report **logical (unzoomed)** ones. `<html>` is not zoomed (the zoom is on `body`), so a rect measured on content is directly comparable with `documentElement.clientHeight`. Mixing the two silently is the root of most of the bugs in this session.
+
+### Real long-standing bug found: Chart.js mis-sizes every canvas whenever `--ui-scale` ≠ 1
+
+Chart.js reads its container in **real** pixels and writes that number as the canvas's **logical** CSS width. The error is exactly the scale factor. Evidence from the DOM: a `1727px`-wide card held a `1554.3px` canvas at scale 0.9 — `1727 × 0.9`.
+
+**This predates this session and was invisible**, because at a fixed 0.9 the canvas is too *small*, which merely leaves a margin inside the card. Above 1.0 the same error inverts: the canvas is *wider* than its card, and since `.panel` is `min-width: 0` it does not stretch the card — it paints its legend straight over the neighbouring chart's axis and drags the page's `scrollWidth` past the window. Symptom seen on screen: the Energy Demand legend ("Cooking", "Miscellaneous") colliding with Energy Supply's rotated `Mtoe` title and its `1,500`/`1,000` labels.
+
+Three fixes were tried; only the last is sound:
+
+1. `chart.resize()` inline, right after setting the scale — measures a container whose `zoom` has not reflowed yet and oversizes the canvas the *other* way (axis labels landing outside the card).
+2. `chart.resize()` deferred a frame, still with `responsive: true` — better but **a race**. Chart.js's `ResizeObserver` answers every size change *including ours*, re-applying its own mis-measurement on top of the correction; which one landed last was timing-dependent, and roughly **1 load in 5** rendered overflowing. Do not go back to this.
+3. **Shipped:** all four `new Chart(...)` sites create charts with `responsive: false` via a `newSizedChart()` helper that sizes them in the same turn (no wrong first frame), and `sizeChartToContainer()` owns sizing from then on. With Chart.js's observer off there is no competing writer, and results became byte-identical across runs.
+
+`sizeChartToContainer()` details that matter:
+
+- Target size is `wrap.getBoundingClientRect() / scale`, **not** `wrap.clientWidth`. Both nominally give the logical size, but `clientWidth` read in the same turn as a `zoom` change can still answer from the pre-change layout — observed as `1727` for a container that was really `1181`, sizing the canvas 546px over its card.
+- `chart.options.devicePixelRatio = (window.devicePixelRatio || 1) * scale`. A canvas bitmap must be sized in **device** pixels, and `zoom` is a multiplier on top of `devicePixelRatio` that Chart.js cannot see: it asks the platform, gets 1, and allocates a bitmap 1:1 with the logical width, which the browser then stretches over `width × scale` real pixels — **visibly blurry charts** (reported as "the charts are too blurry"). Below 1.0 the same error downscales instead, which is effectively supersampling and looks fine, which is the other reason the old fixed 0.9 hid all of this. After the fix: a `1172.1px × 380px` box carries a `1490 × 483` bitmap at 3440.
+- `applyResult()` also calls it on a `requestAnimationFrame` after rendering, because charts built from data that arrives *after* the fit passes were otherwise never corrected. Hanging this off the fit's own timers was tried and is not enough — a recalc slower than the last timer left its charts overflowing.
+
+### Where this lives in `dashboard.js` (call map)
+
+All of it is appended at the end of the file, after `renderSankey()`:
+
+- **`fitUiScale()`** — the measure-and-iterate loop: max 6 passes, clamped to `UI_SCALE_MIN`/`UI_SCALE_MAX` = `[0.7, 1.8]`, with a `0.995` safety factor so rounding can't summon the scrollbar the fit is trying to avoid. Returns early on the Energy Flows view. Schedules the chart-correction passes below; deliberately does **not** resize charts inline.
+- **`finishFit(scale)`** — calls `resizeChartsToContainers()`, then does it again on the next frame and reports. The repeat is not superstition: Chart.js answers our resize with an observer callback of its own, and the second call is the one that survives it.
+- Correction passes fire at `requestAnimationFrame`, `150ms` and `600ms` after a fit (`fitUiScale._settle` / `fitUiScale._settleLate`, both `clearTimeout`-guarded so repeated fits don't stack timers). Each pass is idempotent, so the extra ones cost a measurement.
+- **`resizeChartsToContainers()`** → **`sizeChartToContainer(id)`** for each entry in the pre-existing `charts` registry.
+- **`newSizedChart(id, ctx, config)`** — wraps `new Chart(...)` at all four creation sites, registers into `charts`, and sizes in the same turn so there is no wrong first frame under `responsive: false`.
+- **`reportUiFit(scale)`** — writes the `data-ui-fit` attribute described under **Verified** below.
+- **`refitViewport()`** = `fitUiScale()` plus a Sankey re-render when Energy Flows is active; bound to `window.resize`.
+- **Tab and sub-tab clicks bind `fitUiScale` directly, NOT `refitViewport`.** Those listeners are registered after the existing view-switching ones, so the active view has already changed by the time they run, and the Energy Flows switch handler re-renders the Sankey itself — going through `refitViewport` there would render it twice.
+- Initial load: `setScenario(1)`, then a fit on `requestAnimationFrame` and again on `document.fonts.ready` (a webfont swapping in changes measured text height, and with it the fitting scale — which is why the scale used to vary 1.257–1.272 between runs at 3440 before the Chart.js sizing was made deterministic).
+
+### ⚠️ Do not give any element a height derived from `--ui-scale`
+
+The Insights card was first given `max-height: calc((100vh / var(--ui-scale)) - 2 * var(--page-top))` plus `overflow-y: auto`, for "scroll internally if the text runs long". **This hung the page outright** at 3440×1297 while working fine at 1366×768.
+
+`fitUiScale()` computes `--ui-scale` *from* the content height, so any height that reads `--ui-scale` back closes the loop — the two chase each other and layout never settles. It does not degrade gracefully; whether it converges depends on the numbers, so it looks perfectly reasonable until some window size hangs the browser. Any cap on such an element must be a plain px value, independent of both the scale and the viewport. (Note this is the *second* time a `max-height: calc(100vh / var(--ui-scale))` on this same rail has had to be removed — see the previous session's rail bottom-alignment bug. Uncapped is correct here: `renderInsights()` emits at most two groups and a handful of lines.)
+
+### Insights: left-hand full-bleed blue column → right-hand card
+
+Asked to move it to the right of the page and make it "a proper box in a slightly corporate modern way instead of being very monotonous".
+
+- `ui/pages/base.py`: the `<aside id="pathway-rail">` now comes **after** `.page-main`, so it is second in the DOM as well as second in the grid — it reads after the charts it comments on.
+- `.page-grid` is now `minmax(0, 1fr) 268px` with `align-items: start`. The negative `margin-left` that existed solely to bleed the old blue column off the left edge of the window is **gone**, so both sides sit on the normal page inset.
+- `.pathway-rail` is a card in the same language as `.panel`/`.stat-card` (white, 1px `--line`, 12px radius, soft shadow), `align-self: start` so it is content-height rather than stretching to match whatever chart is beside it, and `sticky` so it stays in view. Its identity is carried by detail rather than a wash of colour: an accent hairline across the top (clipped by the card's own `overflow: hidden`, so it needs no corner values), a tinted `--accent` tile around the lightbulb icon, and a rule under the header. The group label ("BASE STATE") is a pill chip now — the header rule already does the dividing.
+- The inner colours were `rgba(16,17,20,…)` mixes chosen to sit on the old blue panel; on white they resolve to the existing `--muted`/`--line` tokens, so the card no longer carries a private palette. **The white-on-blue contrast note from the previous session no longer applies** — that background is gone.
+- The right column now has empty space below the card (inherent to a content-height box). Flagged to the user, not "fixed".
+
+### Footer copy corrected
+
+`© 2023 NITI AAYOG | DESE ACPET | (Best viewed in 1920 x 1080 resolution, scale: 100%) | … | VIDEO`
+→ `© 2026 NITI AAYOG | ACPET | DOWNLOADS: ONE PAGER DOCS | IESS V3.0 EXCEL`
+
+2023→2026, "DESE ACPET"→"ACPET", resolution note removed (the UI now fits itself, so there is no blessed resolution left to advise), `VIDEO` link removed, no orphaned `|`. Comments in `dashboard.css` and `dashboard.js` that referenced that note as present tense were updated to read as history.
+
+### Base layer beige  **[SUPERSEDED later the same session — the whole palette moved onto EU-Calc's white/grey/green/blue; see that section below]**
+
+`--bg: #f6f6f4` → `#F4EFE3`. Ground only — cards, panels and bands keep their own surfaces (verified by sampling rendered pixels). `--muted` was darkened `#6a707c` → `#666c78` alongside it: small muted text sits directly on that ground in places (`.sankey-legend`, `.pathway-chip-label`), and beige is a darker ground than the old near-white, which dropped contrast to 4.34:1 — under the 4.5 threshold this project already tunes to (cf. the `--deck-muted` note). The new value restores 4.60:1 and only improves muted text on white.
+
+`--bg` is also the hover fill for the masthead menu button and drawer items plus the new Insights chip, so those pick up the same warm tint — consistent by design, not leftovers.
+
+**Left alone deliberately** (user said base layer, not the boxes): the Custom Pathways band `--deck-bg: #EBEBE8` and the pill-tab container `#e6e6e2` are still neutral greys and now read slightly cool against the beige. The original CSS says that warm-paper-vs-neutral-grey split is intentional. Warming them to ~`#EAE4D6`/`#E8E1D3` was offered and not actioned.
+
+### Real bug fixed: a bundled row's ceiling was `min()` of its levers, so capped levers held their siblings back. **This supersedes the `row_max = min(...)` fix recorded in the 2026-09-06→09-08 entry.**
+
+Reported from the UI: Buildings bundles 6 levers, of which only `lv40` "Growth of floorspace" caps at 3; the other five go to 4. The shared row was rendered with `row_max = min(...)` = **3**, so dragging the Buildings row could never set its five uncapped levers above 3. The previous session introduced that `min()` deliberately (reasoning: "the row can't offer a level any of its levers can't actually take") — the reasoning was backwards, because the *row* is not a lever, and `setLeverLevel()` in `dashboard.js` has always clamped each lever to its own `data-max` on write.
+
+**The rule now is `max()`:** the row spans the widest range any member supports, and each member saturates at its own ceiling. Offering a level some member can't take is safe precisely because nothing downstream trusts the row.
+
+Blast radius, measured off the rendered page rather than assumed — only **two** of the 13 sub-sector rows bundle levers with differing caps:
+
+| Row | Lever caps | Old row max | New row max |
+|---|---|---|---|
+| Buildings | `lv40`=3, `lv41`-`lv45`=4 | 3 | **4** |
+| Industry | `lv46`-`lv48`=4, **`lv49`=5** | 4 | **5** |
+
+**Industry was silently broken the other way** and nobody had reported it: "Fuel Switching Choices - Iron and Steel" (`lv49`) supports **level 5** in the Control sheet, and a `min()` row of 4 meant level 5 was unreachable from the group control. It now renders 5 stops. This was not part of the original request — flagged to the user as a visible consequence of applying one consistent rule. The 11 homogeneous rows are byte-identical (Costs stays 3, all four of its levers cap at 3; "Growth of the Economy" stays 3, single lever).
+
+**`updateLeverRow()` needed a matching change**, or every Buildings row at level 4 would have worn the "mixed" ring forever. It previously read the row back as `allSame ? values[0] : round(average)`. Two problems once a row can exceed a member's cap:
+
+- The average mis-reports the row's position. `[3,4,4,4,4,4]` averages to 3.83 → 4 by luck; a row with more capped levers would not be so lucky (`[2,2,2,4,4,4]` averages to 3 when the user set 4).
+- A lever sitting at its own ceiling is **saturated, not out of step**, and shouldn't read as a mixed row.
+
+It now computes `target = Math.max(...values)` for the position, and treats the row as in-step when `values.every((v, i) => v === Math.min(target, caps[i]))` — i.e. mixed is reported only when some lever is below the target *and* below its own cap, which is exactly the flyout-edited case that ring is for. Caps are read per-lever from each hidden input's `data-max`.
+
+**Verified** (this one is properly covered, unlike the tab sweep above):
+
+- The row/saturation arithmetic was extracted into a standalone Node script and asserted, rather than eyeballed — 15 assertions over both real cap vectors: dragging Buildings to 1/2/3/4 and Industry to 1/2/3/4/5 each yields the expected member values, expected thumb position and no mixed ring; genuine mixes (`[3,1,4,4,4,4]`, and a capped lever forced *below* its cap) still report mixed; homogeneous rows behave exactly as before.
+- Rendered ceilings re-parsed from the served HTML for all 13 rows: only Buildings (3→4) and Industry (4→5) moved, `data-max`, the range input's `max` and the tick count agreeing in each.
+- End-to-end through `/recalc`, which is what proves the level was genuinely unreachable before and does real work now:
+
+  | Buildings row | `lv40` | total_demand | Buildings 2047 |
+  |---|---|---|---|
+  | baseline (all levers 1) | 1 | 2201.98 | 210.44 |
+  | 3 (the old ceiling) | 3 | 2133.42 | 146.36 |
+  | **4 (new)** | 3 (clamped) | **2099.82** | **114.95** |
+
+- Also confirmed the UI's clamp cannot diverge from the model's: posting `lv40=4` (out of range) returns byte-identical output to `lv40=3`, so the server clamps the same way the client does.
+- Visual check at 3x on the DEMAND box: Buildings now shows 4 tick stops like its Transport/Cooking siblings, Industry shows 5.
+
+**Noticed, not fixed** (no instruction to): two Industry lever names arrive mojibaked from the workbook read — `Fuel Switching Choices <?> Cement` / `<?> Iron and Steel`, an en-dash decoded with the wrong codec somewhere in `levers.py`'s read path. It is visible to users in the flyout, so worth a look.
+
+### Levers restyled, and the effort ramp single-sourced (it had already drifted)
+
+Asked to make the levers "look classy... premium and corporate" instead of cheap, and to change their colour.
+
+**The colour complaint turned out to be a real inconsistency, not taste.** `LEVEL_FILL[0]` was a bright cyan `#29B6C7`, while every *other* level-1 indicator in the interface — the Predefined-scenarios dot, the pathway chip, the deck's top rule — used slate `#9AA3B2`. Since every lever defaults to level 1, a lever at rest was the only cyan thing on screen. The ramp existed as **eight scattered hex literals** across `sidebar.py`, `base.py` and `dashboard.css`, which is how that drift happened unnoticed.
+
+It is now **one definition**: `--lvl-1`..`--lvl-5` in `dashboard.css`'s `:root`, referenced by the lever fill/thumb, the preset dots, the pathway chip, the deck's `::before` rule, the active preset button, the Insights direction badges and two `--group-accent` values. `sidebar.py`'s `LEVEL_FILL` now emits `"var(--lvl-N)"` strings rather than hex — `paintLever()` drops the chosen entry straight into the `--lg-lever-color` custom property, and a custom property may hold a `var()` reference, so it resolves at use. Verified by sampling rendered pixels: the level-1 thumb ring reads exactly `#8D96A5`, so the indirection resolves rather than silently falling back to nothing.
+
+Ramp deepened and desaturated — electric blue and mint read as consumer-tech; navy and forest green read as institutional:
+
+| Level | Was | Now |
+|---|---|---|
+| 1 | `#29B6C7` cyan (levers) / `#9AA3B2` slate (everywhere else) | `#8D96A5` slate |
+| 2 | `#5468DC` indigo | `#4A6B9A` steel blue |
+| 3 | `#3B62FF` electric blue | `#234978` navy |
+| 4 | `#00C08B` mint | `#1C6B57` forest green |
+| 5 | `#00C08B` (duplicate) | `#1C6B57` (duplicate — only `lv49` reaches it) |
+
+`.insights-arrow-down`'s label colour went from `#04231a` to `#fff`, since the new level-4 green is dark enough that near-black text on it would fail contrast.
+
+**Geometry.** What actually read as cheap was three stacked effects, all removed: a radial-gradient "bubble" thumb with a specular highlight, a saturated glow halo ringing the thumb permanently, and a heavy `inset 0 1px 3px rgba(0,0,0,.22)` pressed into the track. Now: a 4px flat track (hairline instead of inset), 2px tick dots at 26% ink, and a 14px **white disc with the level's colour as an inset ring** — which keeps the ramp legible at that size and reads as a precision control rather than a toy. Hover and drag deepen the shadow and thicken the ring instead of scaling the thumb up (a control that grows under the cursor being the other tell). The `is-mixed` state is now a hollow thumb — the ring without a settled centre — replacing a triple-ring halo.
+
+**Knowingly reversed an earlier decision:** the comment above `LEVEL_FILL` argued for cyan on the grounds that a slate level 1 "read as unset". That reasoning was written for the *dark* control deck; the deck is a light panel now, and the cyan matched nothing else. The consequence to be aware of is that with every lever at level 1 by default, the deck at rest is now entirely monochrome (slate rings, empty tracks). It reads as minimum-effort rather than disabled — the white core, defined ring and drop shadow carry that — but if it ever reads as "unset" again, the dial is `--lvl-1` alone, not a return to cyan.
+
+**Verified:** a standalone harness (`scratchpad/ramp.html`) that links the *real* stylesheet off the running server and renders the lever markup at every level of both a 4-level and the 5-level row, plus the hover/drag/mixed states — screenshotted and inspected at 2x, because the live page only ever shows level 1 at rest and clicking through presets headlessly isn't wired up. Also re-checked the deck header in the live page: top rule gradient, all four preset dots and the active-button fill all pick the new tokens up.
+
+### Removed the dashed "changed series" stroke from the charts
+
+A series whose values moved since the baseline was redrawn with `borderColor: "#a0761f", borderWidth: 3, borderDash: [4, 2]` in `stackedAreaDatasets()`. So moving any lever scribbled a thick amber dotted line along the boundary of every band it affected — drawn over the data, on the chart you had just changed in order to read, and re-applied on every recalc. Reported as "the annoying part is it's creating a dotted line over it".
+
+Every series now draws identically (`borderColor: color, borderWidth: 0.5`, no dash); there is no longer any code path that can produce a dashed stroke. `changedSeries` was dropped from `stackedAreaDatasets()`'s signature — it had exactly one caller — while `renderStackedChart()` still receives it, because the **card-level badge is deliberately kept**: `.changed-note` / `opts.changedCardId` still marks which chart moved ("CHANGED SINCE BASELINE"), which conveys the same fact without drawing on the data. Offered to remove that too; not asked for.
+
+Verified: no `borderDash` remains anywhere in `dashboard.js` outside the comment recording what was removed, and the page still renders with `data-ui-fit` written (that attribute is set at the end of the fit passes, so its presence proves the module executed past the changed call site rather than throwing). The behaviour after an actual lever move is guaranteed by construction rather than observed — the styling is now unconditional, with no changed/unchanged branch left — since driving a lever and re-screenshotting isn't wired up headlessly.
+
+### Custom Pathways recoloured warm, boxes inverted to raised cards, and a false accessibility claim corrected
+
+The deck band was the last cool surface left after `--bg` went beige — a neutral grey (`#EBEBE8`) originally chosen to contrast the page's "warm paper", which worked while the page was near-white `#f6f6f4` and stopped working once it was beige. Asked for "a different colour but it should be complementing the overall colour".
+
+Two changes, one asked for and one structural:
+
+1. **Warm, not grey.** The band and its tokens are now the same warm family as `--bg`, a step deeper so the band still separates from the page.
+2. **Boxes lighter than the band, not darker.** `--deck-panel` used to be *darker* than `--deck-bg`, making each group an inset well. Inverting that makes them raised cards on a ground — which is exactly the relationship the whole top half of the page already uses (white cards on `--bg`), so the deck now belongs to one system instead of being its own idiom. It also puts most of the deck's small print on the lightest surface available, which is what made the contrast work out.
+
+| Token | Was | Now |
+|---|---|---|
+| `--deck-bg` (band) | `#EBEBE8` cool grey | `#E9E0CE` warm sand |
+| `--deck-panel` (group boxes) | `#E0E0DC` (darker than band) | `#F8F4EC` (lighter than band) |
+| `--deck-line` | `#C6C6C1` | `#D8CDB8` |
+| `--deck-muted` | `#6E7580` | `#5D646F` |
+
+**A comment in this stylesheet was claiming something untrue.** `--deck-muted`'s comment read "darkened until the deck's small print clears 4.5:1 against --deck-panel" — the value it described actually measured **3.51:1** on the old panel and **3.89:1** on the old band. Both fail. Rather than carry that forward, contrast was computed properly (a throwaway script over the real token values, `scratchpad/contrast.py`) and `--deck-muted` solved against the **band**, which is the darker of the two surfaces this text lands on and therefore the binding constraint — not the panel the old comment named.
+
+Measured, all five pairs the deck actually renders:
+
+| Pair | Before | After |
+|---|---|---|
+| `--deck-muted` on panel (`.lg-box-avg`, 10px) | 3.51:1 ✗ | **5.44:1** ✓ |
+| `--deck-muted` on band (`#status-chip`, 10.5px) | 3.89:1 ✗ | **4.55:1** ✓ |
+| `--deck-ink-2` on panel (`.lg-subcat-title`, 12.5px) | 6.65:1 | 8.02:1 |
+| `--deck-ink` on panel (`.lg-box-title`) | 13.68:1 | 16.51:1 |
+| page `--bg` vs band (surface separation) | 1.04:1 | 1.14:1 |
+
+**Two lever details had to follow the panel change**, both because they had been tuned against a grey panel that is now near-white:
+
+- `.lg-lever-track` was a literal `#CFCCC4`; it is `var(--deck-line)` now, so re-colouring the band carries the track with it. The track has to stay visible on `--deck-panel` in the deck *and* on white in the flyout rail.
+- `.lg-lever.is-mixed .lg-lever-thumb` filled its centre with `--deck-panel` to read as "hollow". With the panel near-white that made the mixed state indistinguishable from the ordinary white thumb — it uses `--deck-bg` (the band tone) now, which is clearly neither white nor the track. Confirmed distinct in the harness at 3x.
+
+**Still cool, still outstanding:** `.pill-tabs` and `.subtabs` keep a `#e6e6e2` grey container, which is now the only cold surface on the page. Out of scope for a request about Custom Pathways; flagged to the user.
+
+### Chart series palette moved onto EU-Calc's own colours
+
+Asked whether we could use the palette from an EU-Calc "Nickel demand" screenshot. The honest first finding, measured rather than eyeballed, was that **we were already using that palette** — ours and theirs matched in hue, saturation and lightness almost pair for pair (their Industry green `#A5E0A0` vs our Buildings `#8FDBA0`; their Other rose `#EC6E85` vs our Agriculture `#F2718D`; their Energy violet `#8B7FD4` vs our Nuclear `#8E8FD8`, and so on). What actually made their chart look cleaner is layout, not colour: one full-width chart with a few big flat bands, against our two side-by-side charts carrying 7-9 stacked bands each in half the width. That was put to the user with three options (fix defects / adopt theirs / re-lay-out the charts); they chose to adopt EU-Calc's hexes, so that is what shipped.
+
+Six sampled anchors: `#A5E0A0` green, `#EC6E85` rose, `#9FC5EE` blue, `#8B7FD4` violet, `#F5A623` orange, `#3C3C3C` near-black. Six colours can't dress 9+ stacked supply series, so the remainder are extensions in the same register (a yellow, teal, cyan, light violet, two greys).
+
+**Assignment keeps the fuel conventions** an energy reader relies on, which the anchors mostly allow anyway: coal darkest, oil orange, gas rose, nuclear violet, hydro blue, bio/others green, solar yellow, wind teal. **One deliberate departure from EU-Calc's own mapping:** they paint *Transport* near-black, but Transport is a thin sliver in their chart and the single largest band in our Energy Demand chart — a near-black block over a third of the plot reads as a hole punched in it. Transport takes the teal extension and the near-black goes to Coal, where a heavy band is both conventional and semantically right.
+
+**The extensions were solved, not picked.** EU-Calc's register is a tight lightness band, and a first eyeballed pass clustered badly — five pairs of series sharing a chart landed within 0.03 relative luminance, i.e. indistinguishable in greyscale or under some colour-vision deficiencies, and *worse than the palette being replaced*. A short search over candidate teals/yellows/cyans/greys maximised the smallest luminance gap between any two series drawn on the same chart:
+
+| | worst co-occurring gap |
+|---|---|
+| old palette | 0.023 (Agriculture vs Telecom, Natural gas vs Nuclear) |
+| first eyeballed pass at the new one | 0.011 |
+| **shipped** | **0.053** |
+
+The binding pair is now rose against violet — both EU-Calc anchors — so 0.053 is the floor without abandoning them. Hue and the per-series marker shapes (`SERIES_SHAPE`) carry the rest.
+
+**Three things had to change with it, all of which would otherwise have rotted quietly:**
+
+1. **In-band label colour was a hard-coded list.** `bandLabelPlugin` decided white-vs-black text via `["#6E7681", "#3E9C93", "#57B3A9"].includes(ds.bandColor)` — three hexes from the old palette. Under a new palette every dark band falls off that list and gets black text on a near-black fill, so the label just vanishes. Replaced with `isDarkColor()`, a real WCAG relative-luminance computation (threshold 0.42), so any future palette works. Confirmed in the render: Coal's label comes out white, Industry's black.
+2. **The positional fallback `COLORS` still held the old hexes.** Any series `SERIES_COLOR` doesn't name falls back to it, which would have mixed two palettes on the same chart. Rewritten in the new register and ordered so consecutive positions are far apart in luminance.
+3. **Six single-colour bar charts passed old hexes inline** (`renderBarChart(..., { color: "#8E8FD8" })` and friends on Emissions/Indicators). Remapped to the new register; a grep confirms no old-palette hex survives anywhere outside the comment that records what was removed.
+
+Verified: full-page render at 1920x1080 with the fit still clean (`chartOverflowPx=0`, no page overflow), and the Energy Supply chart inspected at 2x — the area fill's own alpha gradient (0.95 -> 0.72) softens `#3C3C3C` into a dark slate rather than flat black, which is why the largest band reads as heavy-but-intentional. Flagged to the user that softening Coal is a one-value change if that mass is still too much.
+
+### Whole chrome palette moved onto EU-Calc's white/grey/green/blue — the beige lasted one iteration
+
+Follow-on from the chart-palette change: the user meant the *page*, not just the series colours — "the overall background colour as white as same as EU calculator", and Custom Pathways in their colour too. So the beige ground added earlier the same session was replaced. Worth knowing if you are reading the beige rationale above: it is superseded, not still in force.
+
+EU-Calc's chrome is a white content plane inside light grey framing, with green and blue as its only accents. Mapped onto this layout as: light cool grey **ground**, white **cards**, a slightly deeper grey **deck band** with near-white boxes, neutral dark grey footer, and one blue accent.
+
+| Token | Beige iteration | Now |
+|---|---|---|
+| `--bg` (ground) | `#F4EFE3` | `#F4F6F7` |
+| `--line` | `#e2e2dd` | `#E1E4E7` |
+| `--muted` | `#666c78` | `#5F6875` |
+| `--accent` | `#1f4bff` | `#29699A` |
+| `--deck-bg` | `#E9E0CE` warm sand | `#EAECEE` |
+| `--deck-panel` | `#F8F4EC` | `#FAFBFB` |
+| `--deck-line` | `#D8CDB8` | `#D8DCE0` |
+| `--deck-muted` | `#5D646F` | `#5F6875` |
+| footer | `#3F4247` (was navy `#1b1d29`) | neutral dark grey, text `#C3C7CC`, links `#8FC2E8` |
+
+The raised-card relationship in the deck (boxes lighter than the band) was kept — only the hues moved.
+
+**The effort ramp went to their grey/blue/green** rather than staying navy/forest, and this needed solving, not picking:
+
+| | Level 1 | 2 | 3 | 4 |
+|---|---|---|---|---|
+| Before | `#8D96A5` slate | `#4A6B9A` steel | `#234978` navy | `#1C6B57` forest |
+| Now | `#9AA2AC` grey | `#5B96C9` light blue | `#29699A` blue | `#25702C` green |
+
+Two measured constraints the values satisfy:
+
+- **Luminance darkens monotonically** (0.357 > 0.283 > 0.129 > 0.122), so the level still reads if colour is lost. A first pass at this register did *not* — grey came out lighter than the blue two steps up, which makes the fill bar unreadable as a scale.
+- **`--lvl-3` and `--lvl-4` carry white text** (`.cdh-pathway-btn.active`, the Insights direction badges), so both clear 4.5:1 against white: 5.86:1 and 6.12:1. The obvious brighter picks failed outright — `#2E7EB8` gave 4.38:1 and a `#4E9F4E` green only **3.28:1**, which is what caught it.
+
+Everything else was validated in the same pass (a throwaway script over the real token values): muted on ground 5.20:1, muted on card 5.64:1, deck-muted on band 4.76:1 and on panel 5.44:1, deck-ink-2 on panel 8.48:1, footer text 5.94:1, footer links 5.31:1. No pair regressed.
+
+**Also brought across, so nothing was left in the old register:** the `.pill-tabs` / `.subtabs` / `.year-tabs` containers (`#e6e6e2`, the last warm-grey surface and one flagged twice before), the drawer header, the lever focus ring, `.stat-note-accent`, the Insights card's accent hairline and icon tile tint, and the three `--group-accent` literals for the deck's group dots (`#5C7CFF` / `#6B7FE8` / `#7E8899` -> `var(--lvl-3)` / `var(--lvl-2)` / `var(--lvl-1)`).
+
+**Five comment blocks were rewritten**, not left behind — they described the beige ground, the "warm, not grey" deck and the navy/forest ramp, all in the present tense. Stale comments of exactly that kind have caused real errors in this project twice this session (the `--deck-muted` 4.5:1 claim that measured 3.51:1, and the `LEVEL_FILL` comment arguing for a cyan), so they are corrected with the measured numbers whenever a value moves.
+
+**Deliberately left warm:** `.changed-note` keeps its amber `#a0761f`. It is the only non-grey/blue/green thing on the page now, but it is a status marker whose whole job is to break out of the palette, and it renders rarely.
+
+Verified: full page at 1920x1080 with the fit clean (`chartOverflowPx=0`, no overflow either axis); surfaces sampled from the render (`#EAECEE` band, `#FAFBFB` boxes, `#3F4247` footer) to confirm the tokens actually landed; and the lever harness re-shot to check the ramp across all five levels plus the drag/mixed states, since the live page only shows level 1 at rest.
+
+### Then the grey went too: the page is one white plane
+
+Immediately after the change above, the remaining light grey read as dull ("those subtle grey is making the entire pannel dull"), so the ground and the Custom Pathways band both went to `#FFFFFF`. Nothing separates a card, panel or lever box from the page now except its own 1px border — which is EU-Calc's arrangement as well; their content plane is white throughout.
+
+| Token | Grey iteration | Now |
+|---|---|---|
+| `--bg` | `#F4F6F7` | `#FFFFFF` |
+| `--deck-bg` | `#EAECEE` | `#FFFFFF` |
+| `--deck-panel` | `#FAFBFB` | `#FFFFFF` |
+
+Custom Pathways is delimited by its own 2px accent rule (`.control-deck-h::before`) and its heading rather than by a fill.
+
+**`--bg` was quietly doing two jobs**, which only became visible when it went white: it was the page ground *and* the faint fill behind `.menu-btn:hover`, `.drawer-item:hover` and the Insights group-label chip. On a white ground those three become invisible. Split out as **`--surface-2: #F1F3F5`** — a tint for interactive fills that no longer tracks the ground. Any future "make the background X" only has to touch `--bg`.
+
+`.lg-lever.is-mixed`'s thumb centre now points at `--surface-2` too. That fill has had to be re-pointed on *every* deck surface change this session (`--deck-panel` -> `--deck-bg` -> `--surface-2`) because it kept being aimed at whichever surface happened to be off-white at the time; what it actually wants is "a tint that is definitely not white", which is what `--surface-2` names.
+
+Verified: contrast on the new white ground (muted 5.64:1, deck-muted 5.64:1, deck-ink-2 8.80:1 — all improved, since white is the lightest possible ground), the fit still clean, and the rendered surfaces sampled to confirm they are genuinely `#FFFFFF` (ground between the KPI cards, the area above the deck heading, the deck boxes and the cards) rather than merely looking it.
+
+### Deck band back to grey (EU-Calc's control sidebar), row labels made clickable, flyout animation enriched
+
+Three asks in one go, after the all-white pass: Custom Pathways should take the grey of EU-Calc's left control sidebar; a bundled row should open its sub-levers when its **name** is clicked, not only its chevron; and the open/close should feel more animated.
+
+**1. Deck band grey again — and this is not a contradiction of the white ground.** EU-Calc puts its controls on light neutral grey against a white content plane, which is exactly the relationship here: page ground stays `#FFFFFF`, the deck band is `#EDEDED`, and the group boxes stay **white** on it. Neutral greys (equal R/G/B) rather than the cool-tinted ones used earlier, because theirs are neutral and it reads cleaner against pure white. `--deck-line` `#D4D4D4`. Keeping the boxes white also keeps the deck's small print on the lightest surface (5.64:1 rather than 4.82:1 on the band).
+
+**2. `.lg-subcat-title` is now a click target for the flyout.** `initLeverFlyouts()`'s per-chevron handler was extracted into a `toggle()` closure and bound to both the chevron and the row's title; rows with a chevron get an `.is-expandable` class from JS, which CSS hangs the pointer cursor and hover colour off.
+
+Bound to the title specifically, **not the whole row** — the row also carries the lever, and a click there has to reach the slider rather than being intercepted. The chevron stays exactly as it was: it holds `aria-expanded`, it is the keyboard path, and it is what the arrow animates on, so the title adds a pointer affordance without a second tab stop.
+
+**3. Animation.** The rail's width transition eased with `cubic-bezier(.16,.84,.44,1)` over `.34s` (was `.28s ease`), and — since `display` can't be transitioned — the panel now has a real entrance *animation*: fade plus an 8px slide-in, with its rows following in a stagger (`.06s` to `.26s`, capped at six because Renewable Generation has eight levers and a per-row delay would leave the last ones visibly late). The chevron's rotation got the same easing. A `prefers-reduced-motion: reduce` block turns all of it off.
+
+**Verification here is behavioural for the first time this session.** Node 24 ships a global `WebSocket`, so a ~120-line dependency-free Chrome DevTools Protocol driver (`scratchpad/cdp.js`) can launch headless Chrome, click things and read the DOM back — which finally covers the interaction paths that `--dump-dom` and `--screenshot` alone could not. What it confirmed:
+
+- Clicking the **Transport label** (not the chevron): rail opens to 271px, the flyout that opens is `Transport` with its 6 rows, the chevron's `aria-expanded` flips to `true`, and the page gains no horizontal scroll.
+- Clicking the same label again closes it — the toggle works both ways.
+- Clicking a **chevron** still opens its own row independently (`Buildings`).
+- The row is marked `is-expandable` and its title computes `cursor: pointer`.
+- The animation genuinely runs rather than snapping: sampled across the transition, panel opacity went `0.66 -> 0.94 -> 1.00` while its transform slid `-2.72px -> -0.49px -> 0`, and the first row trailed it at `0.04 -> 0.58 -> 0.93 -> 1.00` — i.e. the stagger is doing what it claims.
+- Band colour verified from the render by tallying a scanline inside the deck: `#EDEDED` dominant, `#D4D4D4` borders, `#FFFFFF` boxes, page ground still white above it.
+
+One honest limit found while measuring: the rail's *width* transition only plays when opening from closed. Switching straight from one open row to another re-adds `is-open` in the same tick, so the rail never collapses in between — arguably the better behaviour, but it means the width easing is not what you see when moving between rows; the panel fade/stagger is.
+
+**This driver is worth reusing.** The "only the All Energy tab was driven automatically" caveat that stands against every other entry in this session is now fixable with it — tab switching, preset buttons and lever drags are all reachable this way.
+
+### Deck de-boxed: headings over plain text rows, all deck text black
+
+Last step on Custom Pathways: drop the white group boxes, keep the group name as a heading with its rows listed plainly beneath, and make every text in the deck black. This is the reference sidebar's own arrangement — heading, then rows, no card chrome.
+
+- `.lg-box` lost its `--deck-panel` fill, its `--deck-line` border and its radius (`background: transparent; border: 0; padding: 2px 2px 4px`), and `.lg-box-head` lost the rule under the heading.
+- `.lg-subcat-row` lost its `border-top` separators; spacing alone separates rows now (padding `4px` -> `5px`). Flyout rows deliberately **keep** their rules — those sit on a white popup panel where a list still needs the help.
+- Seven text tokens in the deck moved to `--deck-ink`: the group heading, the `avg N.N` badge, the row label, the row count, the chevron, `#status-chip` and `.cdh-pathway-label`. `--deck-ink-2` and `--deck-muted` are no longer painted in the deck at all.
+- **The lever track needed a value of its own.** It was `var(--deck-line)` (`#D4D4D4`), which worked while the track sat on a white box; with the boxes gone it sits on the band itself (`#EDEDED`), where `#D4D4D4` was too faint to read as a track. Now `#C9C9C9`, which holds up both on the band and on white in the flyout rail.
+- `--deck-panel` still exists and is still painted — by the Predefined-scenarios buttons and the flyout rail, both of which are genuinely controls/popups rather than group containers.
+
+Verified through the CDP driver rather than by eye, since "all text black" is a claim about computed values: all seven elements compute `rgb(20, 22, 26)`, and `.lg-box` reports `background: rgba(0,0,0,0)` with `border-top-width: 0px`, `.lg-subcat-row` `border-top-width: 0px`. A colour tally over the whole deck region confirms it is one plane — `#EDEDED` about 30,000 sampled pixels against 4,700 white (the flyout popup and the preset buttons). Label-click, toggle-closed and chevron-click all still pass, and the fit stays clean (`chartOverflowPx=0`, no overflow); note the fitted scale rose from 1.042 to 1.061, since dropping the box padding made the deck slightly shorter and fitUiScale took up the slack.
+
+### Sub-lever panel and chart containers de-boxed too — which exposed a real overflow bug
+
+**Sub-levers.** `.lg-rail` dropped its white fill, border and radius, `.lg-flyout-head` its bottom rule, `.lg-flyout-row` its separators, and its text moved to `--deck-ink`. The flyout is a genuine 5th column of the lever grid rather than an overlay, so with the card gone it simply reads as one more column on the band.
+
+**Chart containers.** `.panel`, `.card` and `.sankey-card` all lost `background: #fff`, their `--line` border and their radius. On a white page that border was the only thing drawing the box, so the charts now sit directly on the page — title, plot, nothing around them, as the EU-Calc reference presents its own. Padding stays, since it is what keeps a plot off the page inset and off its neighbour. `.chart-duo`/`.chart-grid` gaps went `10px -> 26px`: the borders had been doing the work of separating two side-by-side charts, and the gutter has to take that over.
+
+**The bug this surfaced.** With the boxes gone the deck got shorter, `fitUiScale()` took up the slack (scale 1.042 -> 1.061), and the page lost its spare headroom — at which point opening any sub-lever list pushed the footer off the bottom of the window. Measured: `--ui-scale` fitted against a deck whose lever columns are 186px tall, while `.lg-rail-col`'s own ceiling was **260px**. Opening a flyout therefore grew the deck by the difference and the page overflowed by 61px.
+
+This was latent before today — the rail has always been capped at 260px — but the fit had enough slack to absorb it until the padding came out. It is exactly the class of thing a still screenshot of the default state never shows.
+
+Fixed in `initLeverFlyouts()`: before opening, the rail's `max-height` is set to the tallest non-rail `.lg-col`, so an open flyout can never make the deck taller than it already is. Longer lists scroll inside the rail, which is what `.lg-rail`'s `overflow-y: auto` was always there for. `offsetHeight` is used deliberately rather than `getBoundingClientRect()` — it reports logical (unzoomed) pixels, which is the space a CSS `max-height` is expressed in; a rect would be real pixels and would need dividing by `--ui-scale`, the same trap documented in `sizeChartToContainer()`.
+
+Verified with the CDP driver across four states — nothing open, Transport (6 levers), Renewable Generation (8, the longest list), and closed again: `overflowY: 0` and `footerVisible: true` in every one, with the deck height constant at 267px and the rail capping at 186px. Label-click, toggle-close and chevron-click all still pass.
+
+**Consequences worth knowing:**
+
+- A capped rail clips its last row mid-height when the list is longer than the columns beside it (Buildings' 6 and Renewable Generation's 8 both do). It reads as "there is more, scroll" rather than as a mistake, but it is a half-row.
+- The **KPI stat cards** (`.stat-card`) still have their boxes — the request was the graphs, and four naked figures with no separation is a different decision. Same for the **Insights card**, which is a panel in its own column rather than a chart container.
+
+### Hairline under the tab row
+
+Removing the card and panel borders left nothing between the tab row and the data beneath it — the row read as floating above the charts rather than heading them. `.tab-row` now carries `border-bottom: 1px solid var(--line)` with `padding-bottom: 9px` / `margin-bottom: 11px`.
+
+It spans the **main column only**, not the window: the Insights card is a sibling grid column whose top aligns with this row, so a full-bleed rule would cut straight across it. Verified as exactly that — the rule's width equals `.page-main`'s and its right edge stops at or before the card's left edge. The masthead's own `border-bottom` and the deck's accent rule are the same device at the page's other two seams.
+
+Verified on the Electricity tab (the one in the user's screenshot) through the CDP driver: computed `border-bottom` `0.94px rgb(225,228,231)` — 1px logical at the fitted scale — `ruleSpansMainColumn: true`, `ruleStopsBeforeInsights: true`, `overflowY: 0`, footer visible.
+
+**This run also closed a caveat that stood against most of this session's entries.** Driving the tab switch (clicking `Electricity` and re-measuring) exercises the tab-switch refit path for the first time: the fit re-ran to `scale=1.064` with `chartOverflowPx=0` and no overflow on a tab whose chart heights differ from All Energy's. The "only the All Energy tab was driven automatically" limitation is now a matter of running the sweep, not of tooling.
+
+### The tab-row rule gets its own colour: `--rule-accent`, a faded denim
+
+The divider was `var(--line)`, the same neutral grey as every border on the page. It is the one rule that separates navigation from data, so it is allowed to read as deliberate: `--rule-accent: #8FAEC9`, a faded-denim blue related to the blues already in the ramp (`--lvl-2`, `--accent`) without being either, so it looks chosen rather than borrowed.
+
+Kept as a token because this is exactly the kind of value that gets dialled. How much a 1px hairline reads against white, measured:
+
+| | | vs white |
+|---|---|---|
+| old neutral `--line` | `#E1E4E7` | 1.28:1 |
+| a whisper | `#A8C0D8` | 1.88:1 |
+| **shipped** | **`#8FAEC9`** | **2.32:1** |
+| more presence | `#7396B5` | 3.11:1 |
+| `--lvl-2`, for scale | `#5B96C9` | 3.16:1 |
+
+Verified on the rendered page: computed `border-bottom` `0.94px rgb(143, 174, 201)`, still spanning the main column only and stopping before the Insights card, `overflowY: 0`.
+
+**Cleaned up while in there:** `:root` had accumulated *two stacked comment blocks* for the deck tokens, one from the warm/raised-card iteration and one from the EU-Calc grey iteration, and the older one still claimed the deck matched "the relationship the whole top half of the page already uses (white cards on --bg)" — which stopped being true when the cards lost their boxes and the ground went white. Merged into one block that also records what `--deck-panel` is still for (the Predefined-scenarios buttons and the flyout rail) now that the group lists no longer paint it.
+
+### Masthead takes the footer's band colour; logos enlarged and plated
+
+The masthead was white with a `--line` bottom border; it now uses the footer's own `#3F4247`, so the page is bracketed by one dark grey band top and bottom (the same colour the menu drawer's header already used, and the same arrangement EU-Calc has). The bottom border went with it — the colour change is the edge. Title to `#fff` (10.2:1 on the band), logos `26px -> 36px`.
+
+**The menu button had to be re-treated.** It was `color: var(--muted)` with a light-grey hover fill and an `--accent` focus ring, all chosen for a white bar — mid grey on `#3F4247` would have all but vanished. Now `#C3C7CC` with a translucent white wash on hover (`rgba(255,255,255,.14)`, the same treatment the drawer's close button uses on its dark header) and a `#8FC2E8` focus ring.
+
+**Both logos are plated** — a white pad with rounded corners — for two different reasons, and the second one corrected an assumption:
+
+- **NITI**: the mark is `#01238E` navy plus gold (read out of the SVG), which all but disappears on `#3F4247`. Recolouring an official emblem to white via a CSS filter would throw its gold away, so it gets a plate instead.
+- **ACPET**: `ACPET_LOGO_White.png` sounds like a white-ink variant cut for exactly this background. It isn't. The PNG header says colour type 2 — **RGB with no alpha channel**, and no `tRNS` chunk — so its white is painted in and it can never be transparent. It rendered as a hard white rectangle on the dark band. Plating it makes that rectangle deliberate and matches the one opposite.
+
+Worth noting the file name misled here in the useful direction: had the header stayed white, that logo would have gone on looking fine while being un-themeable. If a real transparent or white-ink ACPET asset turns up, the plate on that one can come off.
+
+Verified: masthead and footer sample the same `#3F4247` from the render; fit still clean after the taller band (`scale=1.039`, `footerBottom=984` against `clientH=985`, `chartOverflowPx=0`, no overflow in either axis); flyout label-click, toggle and chevron all still pass.
+
+### The deck's top rule became a real GHG gauge
+
+`.control-deck-h::before` was a decorative 2px effort-ramp gradient. It now carries information: the pathway's own 2047 emissions as a blue band with the figure on it, which is what EU-Calc does with its cumulative-emissions bar. Same job as before (it marks where data ends and controls begin) plus a number.
+
+- Markup: `.cdh-emissions` as the deck's first child — `GHG 2047` label, a track with a fill and a value that rides the fill's head, and the scale maximum at the right. Full-bleed via negative margins cancelling the deck's own top and side padding, the same technique `.site-banner` uses against `.page`.
+- `renderEmissionsBar(data)` in `dashboard.js`, called from `applyResult()` beside `renderInsights()`, drives it from `data.emissions_2047_total` — the very field the "EMISSIONS 2047" KPI card reads, so the two can't disagree.
+- `emissions_2047_total` arrives in **megatonnes** (9635 for the least-effort pathway, shown as 9.6 GtCO2), hence the `/1000`.
+
+**The 0-10 GtCO2 scale is measured, not invented.** Clicking through the four presets gives 9.6 / 5.3 / 2.8 / 2.0 GtCO2, so 10 Gt is the next round number above the worst case the model produces: a do-nothing pathway starts the band nearly full and it empties as ambition rises.
+
+A note on how that figure was established, because the first attempt was wrong: hand-posting `{lv1..lv51: N}` to `/recalc` returned 9.64 / 5.62 / 3.24 / 2.11 — close, but not what the app shows, because a hand-built payload has to guess the lever ids and quietly gets a different vector. Driving the actual preset buttons is what produced the numbers above. Prefer driving the UI over reconstructing its requests.
+
+**Two things the first attempt got wrong, both caught by looking at the render:**
+
+1. The band was a 7px hairline with a 10.5px label inside it. Type taller than its own band spills onto the light track above and below, where white text is simply invisible. The track is 15px now — a band has to be taller than the type it carries.
+2. Label placement was `pct > 82`, a guessed percentage. It is measured instead: `trackPx * pct / 100 > label.offsetWidth + 18`. The track's width varies with the window and with `--ui-scale`, so the same percentage is a different number of pixels on different screens — the guess would have flipped the label at the wrong moment on some.
+
+Verified by driving all four preset buttons: the band reads 9.6 / 5.3 / 2.8 / 2.0 GtCO2 at fills of 96.4 / 53.5 / 27.6 / 20.2 %, each **exactly matching the EMISSIONS 2047 KPI card**, with the label inside the fill in every case and `overflowY: 0` throughout. `aria-label` on the container states the value and the scale, since the bar itself is not readable by a screen reader.
+
+Possible follow-on, not done: the fill is a fixed `--accent` blue. It could take the effort ramp instead (green when emissions are low, blue when high), which would make the gauge legible at a glance without reading the number — but the request was specifically a blue line.
+
+### Ranade as the type face, and the GHG gauge recoloured denim-and-green
+
+**Ranade** (Fontshare / Indian Type Foundry) is now the display and body face, loaded from `api.fontshare.com` alongside the existing Google Fonts link. Space Grotesk and IBM Plex Sans stay *behind* it in the stacks rather than being deleted — Fontshare is a second CDN to depend on, and if it is unreachable the UI should fall back to the faces it was tuned against instead of to a system default. **IBM Plex Mono keeps every mono role**: Ranade has no monospace cut, and the deck's small-caps labels and figures rely on fixed advance widths.
+
+Verified it genuinely renders rather than silently falling back, which is the failure mode worth checking with a webfont: all three faces (400/500/700) report `status: loaded`, `document.fonts.check('700 40px Ranade')` is true, and the same string measures **787px in Ranade against 605px in the fallback** — where 605px is also exactly what a `serif` control measures, since unavailable families collapse to identical metrics. That width difference is the proof.
+
+Ranade is wider than Space Grotesk, so the content grew and `fitUiScale()` absorbed it: the fitted scale moved 1.039 -> 1.000. Nothing to do — that is the mechanism working.
+
+**The gauge** is now a denim box with a light-green meter, on the reasoning that the thing being measured is greenhouse gas:
+
+| part | value | why |
+|---|---|---|
+| box | `--gauge-box` `#C8E1F5` | a light blue (see the note below on why it stopped tracking the denim) |
+| meter (fill) | `#A5E0A0` | the chart palette's own green, so the gauge matches the emissions data |
+| unfilled track | `#5E82A8` | deeper denim — see below |
+| labels + readout | `--deck-ink` | dark, in every position |
+
+Two contrast findings shaped it:
+
+1. **Labels stay dark on the denim.** White on `#8FAEC9` is 2.32:1 — a fail. Dark ink is 7.82:1.
+2. **The unfilled track could not stay pale.** With a pale track, light green on pale blue measured **1.17:1** — you could not see how full the meter was, which defeats the object of a meter. Candidates were measured and `#5E82A8` chosen: 2.63:1 against the green fill while still reading as a recess inside the lighter box (1.73:1). The value readout also had to drop its white (which worked on the old blue fill and would have failed on green) — dark ink is 11.9:1 on the meter and 4.5:1 if it lands on the track.
+
+The box was lightened one step after a first pass at full-strength denim: 20% toward white, written as a `color-mix()` against `--rule-accent` rather than a fresh hex, so it keeps tracking that token if the rule colour is dialled. Lightening it improved two things and cost nothing that matters — dark labels on the box went 7.82:1 -> **9.41:1**, and the unfilled track reads more clearly as a recess inside it (1.73:1 -> **2.09:1**). The green-vs-box figure drops to 1.26:1, which is immaterial: the meter is bounded by the track, so it only ever meets the box at the track's rounded ends, and there the two differ by hue rather than luminance.
+
+The box went through two more steps after the full-strength denim. First a lighter tint of it, written as `color-mix(in srgb, var(--rule-accent) 80%, #fff)` (= `#A5BED4`) so it would keep tracking the rule colour. Then asked for a light blue outright — and a mix could not deliver that: taking a *desaturated* denim toward white only ever yields a pale grey-blue, never a light blue that still reads blue. So the box became its own token, `--gauge-box: #C8E1F5`, and deliberately no longer tracks `--rule-accent`. Lightening improved the numbers at each step: dark labels on the box 7.82 -> 9.41 -> **13.41:1**, and the unfilled track reading as a recess inside it 1.73 -> 2.09 -> **2.97:1**.
+
+**Bordered** in the tab rule's own denim (`1px solid var(--rule-accent)`), which ties the page's two blue rules together and, more practically, gives the band a real edge — without it the box's top simply changed colour against the white page with nothing marking the boundary. It reads 1.71:1 against the box it outlines, 2.32:1 against the white above and 1.98:1 against the deck grey below; `#7FA3C4` or `#6E93B8` are recorded in the CSS comment if it ever wants more weight. The side borders land on the window edges, the band being full-bleed.
+
+Verified from the render at each step. The final check was a vertical pixel slice down through the band, which shows the whole intended stack in order: `#FFFFFF` page, then one row of `#8FAEC9` border, then `#C8E1F5` box, then 15 rows of `#A5E0A0` meter, then box again — i.e. every layer landing at its declared colour and height. Alongside that: border computed `1px rgb(143,174,201)` on all four sides, box `rgb(200,225,245)`, track `rgb(94,130,168)`, meter `rgb(165,224,160)`, readout dark, `9.6 GtCO₂` still agreeing with the KPI card, and `overflowY: 0` / `overflowX: 0` with the band still spanning the full window width.
+
+### Files touched this session
+
+`ui/pages/base.py`, `ui/pages/sidebar.py`, `ui/static/css/dashboard.css`, `ui/static/js/dashboard.js`, plus a new `tools/devtools/cdp_driver.js` (headless-Chrome click driver, see Verified). No Python model/engine code, no lever or output logic — nothing in this session touched a number the model produces.
+
+Stale comments were refreshed alongside the code rather than left contradicting it: the `.page-grid` block comment (it described the rail as the *left*, full-bleed column), the top-of-file layout comment (it claimed `.pathway-rail` scrolls internally — it no longer does), and the two comments referring to the footer's resolution note in the present tense.
+
+### Verified
+
+- Headless Chrome (Playwright is not installed in this environment; `chrome.exe --headless=new` with `--dump-dom` and `--screenshot` was used instead) at 3440×1297, 2560×1440, 1920×1080, 1366×768 and 1280×720, several runs each.
+- Pass criteria were measured, not eyeballed — `dashboard.js` writes a `data-ui-fit` attribute on `<html>` (kept in the code; it is small and makes this class of bug diagnosable): `scale`, `footerBottom`, `clientH`/`scrollH`, `clientW`/`scrollW`, `chartOverflowPx`. `scrollH == clientH` and `scrollW == clientW` means no scrollbar in that axis; `chartOverflowPx == 0` means no canvas is wider than its card. Final state: clean on all of the above at every size, identical across repeated runs.
+- The legend-collision fix was confirmed by drawing marker lines on a screenshot at the *measured* canvas and panel edges, after pixel-reading a downscaled screenshot produced two wrong conclusions in a row. Worth repeating that technique: measure, annotate, then look.
+- Blur fix confirmed by A/B of the same region magnified 3× (before: smeared glyph edges; after: crisp) plus the DOM showing a `1490×483` bitmap for a `1172×380` box.
+- **Only the All Energy tab was driven automatically.** Tab switching goes through the same `fitUiScale` path but was not clicked through headlessly — worth a manual pass over the other 8 tabs.
+
+### Environment notes (cost real time this session)
+
+- Headless Chrome was initially run **against the user's live Chrome profile**, which crashed the network and GPU processes (`exit_code=-1073741819`) and produced spurious hangs that looked like page bugs. Always pass a throwaway `--user-data-dir`. Leftover headless processes also pile up and starve the machine — clean them up by matching `--headless` in the command line, never by killing `chrome.exe` broadly (the user's own browser was 33 of 35 processes at one point).
+- Screenshotting at 3440×1297 remains flaky in this environment even isolated (GPU process dies); `--dump-dom` at that size is reliable, so measurement was done at 3440 and visual review at 1920.
+- The "duplicate app.py processes" confusion resurfaced: a single logical server shows as **two** PIDs on this machine, because the Windows Store `python.exe` shim is the parent of the real interpreter. Killing the "non-listening" one kills the server. Check the parent/child relationship before concluding there are duplicates.
+
+### Sankey made interactive: full-route tracing, flow animation, entry reveal
+
+The Sankey was a static render with name-only tooltips. Three additions, in `renderSankey()` plus styles:
+
+**1. Full-route tracing (the substantial one).** Hovering a node lights the *whole chain* it belongs to — everything upstream that feeds it and everything downstream it feeds, walked transitively — and dims everything else to 7% opacity. That is the question this diagram exists to answer: hover "Electricity Grid" and you see every fuel that produced it and every sector that consumed it at once. `trace()` is a breadth-first walk over the `sourceLinks`/`targetLinks` that d3-sankey already hangs on each node, in both directions. Hovering a *link* instead highlights just that link and its two endpoints.
+
+Measured on the real graph: hovering Electricity Grid (20 direct connections) lights **39 of 67 links** and dims 28 — i.e. the transitive walk finds 19 links beyond the node's own, which is the whole point.
+
+**2. Flowing dashes.** Each link has a dashed white overlay copy, invisible until its route is traced, whose `stroke-dashoffset` scrolls via CSS animation — a traced route reads as *running* rather than merely coloured. An overlay rather than dashing the real link, since dashing that would punch gaps in the band itself. Nothing on the page animates until the reader asks by hovering; a permanently shimmering diagram is unreadable.
+
+**3. Richer tooltips.** A link now reports its value *and* its share of the source's throughput ("42% of Coal"); a node reports its throughput and in/out counts.
+
+**4. Entry reveal.** Links draw themselves in left-to-right, staggered by `node.depth`, so the picture builds along the direction the energy flows. Nodes and labels fade in behind them.
+
+#### A bug I introduced, shipped, and nearly reported as working
+
+The first version of the reveal used d3 transitions. **`.transition()` does not exist on this page** — `base.py` loads d3-array, d3-path, d3-shape, d3-selection and d3-sankey, and d3-transition is not among them nor bundled with any of them (confirmed: `typeof d3.select('body').transition === "undefined"`).
+
+The failure was quiet and asymmetric: the TypeError threw on the **first** link inside `.each()`, which left that one link stranded with its reveal dash applied — *invisible* — and aborted the loop before any other element was touched, so the node/label animations never ran either and everything else looked normal. One missing flow out of 67, no visible animation, no obvious breakage.
+
+Worse, my first verification *cited the bug as evidence of success*: I measured "links carrying a `stroke-dashoffset`" and read `1` as "one link mid-reveal", when it was the one stranded link. Two later attempts to fix it (`.on("end interrupt cancel")`, then a `setTimeout` sweep) both failed because both were treating a symptom of a TypeError as a transition-lifecycle problem. Dumping the actual stranded element — `Coal Production -> Coal`, offset equal to its full path length — is what identified it.
+
+**Reimplemented in CSS animations**, which needs no new dependency (pulling in d3-transition would mean five more CDN scripts for its own unbundled deps) and, more importantly, cannot fail this way: `animation-fill-mode: forwards` *declares* the end state, so no interrupted re-render, missed event or thrown handler can leave a flow hidden. In a data diagram an invisible flow is a data-integrity bug, not a cosmetic one, so it is worth designing out rather than guarding against.
+
+One more measurement trap on the way: after the CSS rewrite the same probe reported all 67 links "stranded", because it was reading the `stroke-dashoffset` **attribute** — which stays at full length by design while the animation drives the *computed* value to 0. Verification has to read `getComputedStyle`.
+
+Verified through the CDP driver with real mouse events: 230ms in, all 67 links are partly drawn with a max computed offset of 953 (the reveal genuinely running, confirmed against a screenshot showing flows stopping mid-air); settled, `allRevealed: true` with max offset 0; after deliberately interrupting reveals by switching year four times in 500ms, still `allRevealed: true`; tracing lights 39/dims 28 with 39 flow overlays animating (`animationName: sankey-flow`), traced stroke-opacity 0.68 against dimmed 0.07; moving the pointer away clears every class and hides the tooltip; **zero console errors**.
+
+#### Found, not fixed: Energy Flows overflows the window by 253px
+
+`fitUiScale()` deliberately skips this tab (`#sankeySvg`'s height is viewport-derived, so measuring it would chase a moving target). Nothing else compensates, and the height is `clamp(400px, calc((100vh / var(--ui-scale)) - 300px), 820px)` — where `-300px` is a hard-coded allowance for "everything else on the page". Today's work grew everything else: taller masthead logos, the new GHG gauge band, the tab-row rule, Ranade's larger metrics. The allowance is now wrong by about 250px, so the footer sits off-screen and the deck is clipped on this tab.
+
+The right fix is not a bigger magic number: size the SVG from *measured* sibling heights (masthead + tab row + toolbar + legend + deck + footer subtracted from `clientHeight`) in JS. That also removes the `100vh / --ui-scale` dependency, which is what forced this tab out of the fit in the first place — so the tab could then join it. Left alone here because it touches the fit system rather than the Sankey.
+
+### Two fixes: the "Base state" chip is gone, and the Sankey tooltip no longer gets sliced
+
+**"BASE STATE" removed from Insights.** The idle message was preceded by a group-label chip, which put a heading over a single sentence — and which levers sit where is already legible in the Custom Pathways deck below it. The changed-state groups ("Levers changed" / "Impact on results") keep their labels, because those genuinely separate two lists. Verified: the idle panel now reports zero `.insights-group-label` elements and no "base state" text, with the sentence itself intact.
+
+**The Sankey tooltip was being clipped by its own container.** `.sankey-card` carried `overflow: hidden`, and the tooltip is absolutely positioned *inside* that element — so any hover near an edge had the box sliced off, which is exactly what the user's screenshot showed at the left edge ("full route traced" cut in half).
+
+The `overflow: hidden` was there to clip the Sankey to the card's rounded corners. The card lost both its radius and its background in the de-boxing earlier this session, so the rule had stopped doing anything except cutting up tooltips — removed.
+
+Removing the clip alone would have let the tooltip hang outside the plot instead, so `showTip()` now also clamps it: it is centred on the cursor via `translate(-50%, -120%)`, so the position is constrained to keep the whole box (plus an 8px margin) within the card's width, and it flips to *below* the cursor when there is not room above. `offsetX`/`offsetY` are used deliberately — they are layout (logical) pixels, the same space as the `left`/`top` they are written into, whereas `clientX`/`clientY` would be real pixels and would need dividing by `--ui-scale`.
+
+Verified by driving real mouse events onto the extreme nodes and comparing the tooltip's rect against the card's: at the **leftmost** node (Coal Production, the reported case) it now sits 8px inside the left edge; at the **rightmost** (Losses) 8px inside the right; at the **topmost** it flips below. `fullyInsideCard: true` in all three, and the card computes `overflow: visible`.
+
+### Where this session actually landed (read this first)
+
+This entry records a long UI session in the order things happened, and several decisions were **superseded within it** — the page ground went near-white -> beige -> light grey -> pure white, and the deck band went cool grey -> warm sand -> grey -> white -> grey again. Reading the steps in order will mislead. The final state:
+
+**Sizing.** No `max-width` anywhere on `.page`. `--ui-scale` is a *starting* value only; `fitUiScale()` measures the footer's own bottom edge and scales the whole UI until it meets the bottom of the window, per tab. Charts are `responsive: false` and sized from `sizeChartToContainer()`, including a `devicePixelRatio` multiplied by the scale so canvases stay sharp. **Never give an element a height derived from `--ui-scale`** — it closes a loop with the fit and hangs the page at some window sizes.
+
+**Palette — final values.**
+
+| Role | Token | Value |
+|---|---|---|
+| Page ground | `--bg` | `#FFFFFF` |
+| Interactive tint (hovers, chips) | `--surface-2` | `#F1F3F5` |
+| Borders | `--line` | `#E1E4E7` |
+| Tab-row rule | `--rule-accent` | `#8FAEC9` denim |
+| GHG gauge box | `--gauge-box` | `#C8E1F5` light blue, bordered `--rule-accent` |
+| Accent | `--accent` | `#29699A` |
+| Effort ramp 1-4 | `--lvl-1..4` | `#9AA2AC` / `#5B96C9` / `#29699A` / `#25702C` |
+| Deck band / boxes / lines | `--deck-bg` / `--deck-panel` / `--deck-line` | `#EDEDED` / `#FFFFFF` / `#D4D4D4` |
+| Masthead + footer band | (literal) | `#3F4247` |
+| Type | `--head` / body / mono | Ranade / Ranade / IBM Plex Mono |
+
+Chart series colours are EU-Calc's own six anchors plus same-register extensions, in `SERIES_COLOR` (`dashboard.js`).
+
+**Structure.** Insights is a card in a right-hand column (not a left rail). The tab row carries a denim bottom rule spanning the main column only. Chart containers (`.panel`, `.card`, `.sankey-card`) and the deck's group boxes and sub-lever panel have **no box chrome** — borders and spacing do the separating; the KPI `.stat-card`s and the Insights card are the only boxes left. The deck's top edge is a working GHG gauge, not a decorative rule. `--deck-panel` survives only for the preset buttons and the flyout rail.
+
+**Two behaviours that are easy to break again.** A bundled lever row's ceiling is `max()` of its members' caps, never `min()`, and `updateLeverRow()` treats a lever pinned at its own cap as *saturated*, not mixed. An open sub-lever flyout is capped to the tallest lever column, or it grows the deck and pushes the footer off-screen.
+
+**Open issue.** Energy Flows overflows the window by ~253px: `#sankeySvg`'s height subtracts a hard-coded 300px allowance for the rest of the page, and the rest of the page grew today. Fix by measuring sibling heights instead — which would also let that tab rejoin `fitUiScale()`. See the Sankey section.
+
+**What is verified and what is not.** Everything visual was checked at 1366x768 / 1920x1080 / 2560x1440 / 3440x1297 by measurement (`data-ui-fit` on `<html>` reports scale, footer position, overflow and chart overhang). Interactions — flyout open/close, preset buttons, tab switching — are verified through `tools/devtools/cdp_driver.js`. **Not verified:** a full sweep of all 9 tabs and both sub-tab groups after the de-boxing and palette changes, and the Sankey on Energy Flows (the one view that opts out of the fit). That sweep is the obvious next task and the driver makes it cheap.
