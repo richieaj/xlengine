@@ -1,67 +1,49 @@
 """Critical Minerals tab — mineral demand from the utility solar PV build-out.
 
-The sheet behind this models exactly one chain: utility solar PV capacity (GW)
--> a mix across 8 PV technologies -> mineral demand (tonnes), through a
-hardcoded intensity matrix in tonnes per GW. Everything on this page is that
-chain, and nothing else is on the sheet.
+Layout deliberately mirrors energy_security.py exactly: .chart-grid > two
+.card blocks, each a terse one-line unit caption over a .chart-wrap-lg canvas.
+Keep it that way — the two tabs are meant to be the same size on screen.
 
-Three design decisions worth knowing before editing:
+The sheet behind this models one chain: utility solar PV capacity (GW) -> a mix
+across 8 PV technologies -> mineral demand (tonnes), through a hardcoded
+intensity matrix in tonnes per GW.
 
-1. The mineral chart is a RANKED SINGLE-YEAR bar on a log axis, not the
-   stacked time series used everywhere else in this dashboard. 2047 demand
-   spans 7.8 orders of magnitude (aluminium 2.98M tonnes, lithium 0.046), so a
-   stacked area would be 100% Al+Cu+Si with everything else invisible. A log
-   axis handles the spread but cannot plot zero — and seven minerals are
-   exactly zero in 2022, appearing only once perovskite enters after 2032.
-   Hence one year. The growth story those seven represent is carried by bar
-   colour instead of by a second chart.
+Context that is NOT on the page, and matters when reading these numbers:
 
-2. The capacity chart is here to make the tab legible, not to fill the grid.
-   It is the only input the tab responds to, so it is what explains an
-   unchanged page when a user drags a lever this sheet does not model. (A KPI
-   stat strip led with the same capacity figure and was removed; the chart
-   carries that job on its own.)
+- Scope is utility solar PV only. Rooftop solar, wind, storage, grid and EVs
+  are not on this sheet, so Control!E13 (Solar Photovoltaic) is the only lever
+  that moves anything here — verified: every other lever leaves these figures
+  bit-identical. A user dragging a wind lever will see a static tab.
+- Demand scales linearly with capacity. The technology mix and material
+  intensities are fixed inputs, so there is no thrifting, substitution or
+  recycling in these figures.
+- The 2022 column is backward-extrapolated: the technology-share source table
+  starts at 2025, so 2022 runs the 2025-2030 trend in reverse and is inferred
+  rather than observed.
 
-3. The scope and linearity notes are deliverables, not decoration. This is
-   solar PV only — no batteries, no wind, no grid copper, no EVs — and demand
-   scales linearly with capacity because the mix and intensities are fixed
-   inputs. Both facts are much larger than anything shown on screen, and a
-   reader who misses them will over-read every number here.
+The mineral chart is a ranked single-year bar on a log axis rather than the
+stacked time series used elsewhere, because 2047 demand spans 7.8 orders of
+magnitude (aluminium 2.98M t, lithium 0.046 t) and a stack would be 100%
+Al+Cu+Si. A log axis cannot plot zero, and seven minerals are exactly zero in
+2022 until perovskite enters after 2032 — hence one year, with those seven in
+a second colour to carry the emergence story.
 """
 
 
 def render():
     return """
     <div class="view" id="view-critical-minerals">
-
-      <p class="view-note">
-        Mineral demand from <strong>utility-scale solar PV only</strong> — rooftop solar, wind,
-        storage, grid infrastructure and EVs are not modelled on this sheet, so the Solar PV lever
-        is the only one that moves these figures. Technology mix and material intensities are fixed
-        inputs: demand scales linearly with capacity and assumes no thrifting, substitution or
-        recycling.
-      </p>
-
       <div class="chart-grid">
         <div class="card">
           <h3>Mineral Demand in 2047</h3>
-          <div class="card-sub">
-            Tonnes, log scale — bar length shows rank, the printed figure shows quantity.
-            Violet bars are minerals with no demand in 2022, arriving with perovskite and thin-film
-            technologies. Lithium appears at 0.05 t: this sheet covers solar PV, not batteries.
-          </div>
+          <div class="card-sub">Tonnes — log scale, ranked</div>
           <div class="chart-wrap-lg"><canvas id="crmMineralRankChart"></canvas></div>
         </div>
         <div class="card">
           <h3>Solar PV Capacity by Technology</h3>
-          <div class="card-sub">
-            GW installed — the mix that drives every figure on this tab. Technology shares before
-            2025 are extrapolated backwards from the 2025–2030 trend, so 2022 is inferred rather
-            than observed.
-          </div>
+          <div class="card-sub">GW — stacked area 2022–2047</div>
           <div class="chart-wrap-lg"><canvas id="crmCapacityChart"></canvas></div>
         </div>
       </div>
-
     </div><!-- /view-critical-minerals -->
 """
