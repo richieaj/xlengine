@@ -712,6 +712,13 @@ def compute_outputs(eng, defer=()):
     per_capita_mj = (total_demand * MTOE_TO_MJ / (population_millions * 1_000_000)
                       if population_millions else 0.0)
     import_dependence_pct = (imports / total_supply * 100) if total_supply else 0.0
+    # Clean share of primary supply. Computed here rather than in the browser
+    # (which is where it used to live, as dashboard.js's cleanSharePct) for one
+    # reason: it is one of the four headline KPI cards, so the Insights panel
+    # has to be able to report its before/after the same way it reports the
+    # other three — and kpi_deltas() can only diff what compute_outputs()
+    # actually produces. Same formula, one home.
+    clean_share_pct = ((renewables + nuclear) / total_supply * 100) if total_supply else 0.0
     emissions_2047 = compute_emissions_2047_total(eng)
 
     out = {
@@ -720,6 +727,7 @@ def compute_outputs(eng, defer=()):
             "total_supply": round(total_supply, 2),
             "per_capita_demand": round(per_capita_mj, 0),
             "import_dependence": round(import_dependence_pct, 1),
+            "clean_share": round(clean_share_pct, 1),
         },
         "total_supply": round(total_supply, 2),
         "total_demand": round(total_demand, 2),
@@ -808,7 +816,7 @@ def diff_outputs(current, baseline):
 # one cell rather than a whole chart — kept alongside the other three here so
 # callers get one flat set of deltas rather than two differently-shaped ones.
 SUMMARY_KPI_KEYS = ["total_demand", "total_supply", "per_capita_demand",
-                    "import_dependence", "emissions_2047_total"]
+                    "import_dependence", "clean_share", "emissions_2047_total"]
 
 
 def kpi_deltas(current, baseline):
@@ -825,8 +833,17 @@ def kpi_deltas(current, baseline):
 
     out = {}
     for key in SUMMARY_KPI_KEYS:
-        cur = get(current, key) or 0
-        base = get(baseline, key) or 0
+        cur = get(current, key)
+        base = get(baseline, key)
+        # A key absent from EITHER side is skipped rather than read as 0.
+        # `or 0` used to coerce it, which turns "this payload predates the
+        # field" into a delta from zero — e.g. a clean share "rising" from 0%
+        # to 24% when nothing about the pathway's clean share had moved.
+        # Reachable whenever a baseline was computed under a different output
+        # schema than the current result (see app.py's OUTPUT_FP, which now
+        # makes that rare rather than impossible).
+        if cur is None or base is None:
+            continue
         if not _diff_scalar(cur, base):
             continue
         out[key] = {

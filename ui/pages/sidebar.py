@@ -11,10 +11,12 @@ hidden inputs) — moving the lever snaps all of them together.
 Hovering (or focusing) a lever shows the Control sheet's own ambition-level
 note for its CURRENT value (dashboard.js's lever-tooltip) — real model
 documentation (columns H-K on the Control sheet, read by levers.py), not
-anything authored here. Only single-lever rows carry descriptions: a
-multi-lever sub-sector's shared lever is an AVERAGE across levers that may
-each mean something different at that level, so no one description could
-honestly describe it."""
+anything authored here.
+
+Only SINGLE-lever rows carry a data-descs attribute. A bundled row's tooltip
+is built by dashboard.js from the flyout rows for that sub-sector instead: it
+lists one line per lever, each showing the level that lever is actually on and
+that lever's own note. The notes are therefore emitted once, not twice."""
 
 import html
 import json
@@ -45,8 +47,11 @@ GROUP_DISPLAY_NAMES = {
     "Clean build-out": "Supply &mdash; Renewable and Clean Energy",
     "Conventional supply": "Supply &mdash; Conventional Energy",
     "Network and systems": "Network and Systems",
-    "Economics": "Economy",
-    "Costs": "Costs",
+    # "Economics" -> "Economy" and "Costs" were top-level groups here. They are
+    # sub-categories of "Other" now (see levers.py), where the row label comes
+    # from the sub-category, not from this map: "Costs · 4", and — since
+    # Economics holds exactly one lever — that lever's own Control-sheet name,
+    # "Growth of the Economy". Neither needs an entry.
 }
 
 # One placement class per group, purely for its accent color in CSS.
@@ -55,8 +60,6 @@ GROUP_CLASSES = {
     "Clean build-out": "lg-box-clean",
     "Conventional supply": "lg-box-conv",
     "Network and systems": "lg-box-network",
-    "Economics": "lg-box-econ",
-    "Costs": "lg-box-costs",
     "Other": "lg-box-other",
 }
 
@@ -69,21 +72,27 @@ GROUP_CLASSES = {
 # point, since the deck is fixed-height and the charts above get whatever
 # vertical space it doesn't take.
 #
-# Costs + Economics now share the last column (it used to be Key's slot —
-# the Key legend itself was folded into the "Predefined scenarios" buttons
-# next to the heading, see .cdh-pathway-btn in base.py). Any group not
-# listed here is appended to the last NAMED column below (Network and
-# systems), not to Costs/Economics, so a future group can't silently land
-# in that column — that's why "Other" is listed explicitly rather than
-# left to the fallback.
+# The last column used to be Costs + Economics, two one-row groups stacked as
+# two separate panels (the Key legend had been there before that, and was
+# folded into the predefined-scenario control — which itself now lives in the
+# pathway chip beside the tabs, see .pathway-chip in base.py). Both are
+# sub-categories of "Other" now: one heading over Hydrogen Production, Costs
+# and Growth of the Economy.
+# "Other" sits UNDER "Network and systems" in the third column rather than
+# taking a fourth of its own — Network is a single row, so a column each left
+# one heading over one row beside one heading over three, and pushed Other up
+# level with the other groups' headings as if it ranked with them. Stacked, the
+# third column reads as one column of the smaller groups.
+# Any group not listed here is appended to the LAST named column, so a new
+# group would land beside Other — which is what "Other" means. Every group is
+# listed explicitly anyway.
 # Balanced by box height (rows + header), not by group count, so no single
 # column drives the deck taller than it needs to be: Demand alone is 5 rows,
-# Clean + Conventional are 2 each, the rest are 1 apiece.
+# Clean + Conventional are 2 each, Network is 1 and Other 3.
 DECK_COLUMNS = [
     ["Demand side"],
     ["Clean build-out", "Conventional supply"],
     ["Network and systems", "Other"],
-    ["Costs", "Economics"],
 ]
 
 
@@ -99,13 +108,52 @@ def _subcat_label(category, levers):
     return category
 
 
-def _lever_html(value, max_n, descs=None):
+# Level 1 is the workbook's own "no new action" case and the top of each
+# lever's F-column range is as far as the model will go, so those are the two
+# things a track's ends actually mean. The ceiling word is per-LEVER, not
+# global: rows 31/40/59-62 stop at 3 and row 49 runs to 5, so the same visual
+# right-hand end is a different ambition depending on the row, and saying
+# "maximum ambition" everywhere would flatten a real difference.
+ENDPOINT_MIN = "business as usual"
+CEILING_WORDS = {3: "aggressive", 4: "maximum ambition", 5: "maximum ambition (5)"}
+
+# Track width is NOT set here — it is `.lg-lever-cell` in dashboard.css, and
+# there is one width for every track.
+#
+# It was briefly a function of the row's lever count (64 + 11n, giving
+# 75-152px) so that a row's reach into the model was visible in its control.
+# The encoding was real but it read as raggedness: twelve tracks of twelve
+# lengths, ending on twelve different x positions, with nothing lining up
+# down the column. Reverted on the user's call — a control grid you scan
+# down beats a second data channel nobody asked for. The lever count is
+# still on the row (the "- 6" after its name) where it is a fact rather than
+# a shape.
+#
+# A LEVER_TRACK_PX constant survived that revert here, rendered by nothing and
+# free to drift out of step with the stylesheet that actually decides the
+# width — which it duly did. Removed rather than kept in sync by hand.
+
+
+def _lever_html(value, max_n, descs=None, lever_count=1):
     """A draggable lever: a native `<input type=range>` (drag the thumb,
     click anywhere on the track, or arrow-key it while focused — all built
     in, no pointer-math needed) overlaid on a styled track+fill, with tick
     marks for each level 1..max_n. The input drives everything via its own
-    `input` event (dashboard.js's initLevers); this function only renders
-    the current value.
+    `input` event (dashboard.js's initLevers); this function renders the
+    current value, and dashboard.js's updateLeverRow re-renders it (including
+    the spread band, below) from the real lever values on every change.
+
+    Every track is the same width (`.lg-lever-cell`, dashboard.css) and every
+    track starts on the same x in its column, so the deck reads as one grid
+    of controls.
+
+    `max_n` still sets the tick count and the right-hand endpoint's label,
+    because a row that stops at 3 genuinely does not reach the same ambition
+    as one that runs to 5 — that is the model's own range, not a style
+    choice, and the ticks are the snap positions the slider actually has.
+
+    The endpoint words are NOT here — they are one note in the deck head, see
+    scale_note_html.
 
     `descs`, when given, is {level: ambition-note} from the Control sheet
     (see levers.py) — passed through as one JSON attribute rather than a
@@ -119,13 +167,21 @@ def _lever_html(value, max_n, descs=None):
             descs_attr = f" data-descs='{html.escape(json.dumps(d))}'"
     ticks = "".join(f'<span class="lg-lever-tick" style="left:{100 * (n - 1) / (max_n - 1) if max_n > 1 else 0}%"></span>'
                     for n in range(1, max_n + 1))
+    ceiling = CEILING_WORDS.get(max_n, f"level {max_n}")
+    # The band is the row's real spread: empty (display:none) while every
+    # lever underneath sits on the same level, and stretched from the lowest
+    # to the highest as soon as they don't — which is the normal state on any
+    # pathway above 1, since the levers have different ceilings.
     return (
-        f'<div class="lg-lever" data-max="{max_n}" data-fills="{fills}"{descs_attr}>'
-        f'<div class="lg-lever-track"><div class="lg-lever-fill"></div>{ticks}'
+        f'<span class="lg-lever-cell">'
+        f'<div class="lg-lever" data-max="{max_n}" data-fills="{fills}" '
+        f'data-levers="{lever_count}" data-ceiling="{ceiling}"{descs_attr}>'
+        f'<div class="lg-lever-track"><div class="lg-lever-fill"></div>'
+        f'<div class="lg-lever-band"></div>{ticks}'
         f'<div class="lg-lever-thumb"></div></div>'
         f'<input type="range" class="lg-lever-input" min="1" max="{max_n}" step="1" '
-        f'value="{value}" aria-label="Ambition level">'
-        f'</div>')
+        f'value="{value}" aria-label="Ambition level, {ENDPOINT_MIN} to {ceiling}">'
+        f'</div></span>')
 
 
 def _render_flyout(flyout_id, label, levers):
@@ -139,10 +195,14 @@ def _render_flyout(flyout_id, label, levers):
     there's no other lever's lower ceiling to respect."""
     rows = []
     for lv in levers:
-        lever = _lever_html(lv["value"], lv["max"], lv.get("descs", {}))
+        # lever_count=1 by definition here: a flyout row IS one Control-sheet
+        # lever, so every track in the rail is the narrowest width. That the
+        # rail's tracks are visibly shorter than the group row that opened it
+        # is the point — the group row moves all of them at once.
+        lever = _lever_html(lv["value"], lv["max"], lv.get("descs", {}), lever_count=1)
         rows.append(f"""
           <div class="lg-flyout-row lg-subcat-row" data-lever-ids="{lv['id']}">
-            <span class="lg-flyout-name" title="{lv['name']}">{lv['name']}</span>
+            <span class="lg-flyout-name">{lv['name']}</span>
             {lever}
           </div>""")
     return f"""
@@ -164,15 +224,11 @@ def _render_box(grp, flyouts):
     `flyouts`) listing each individual lever's own control."""
     subcat_rows = []
     hidden_inputs = []
-    group_values = []
-    group_lever_ids = []
     group_slug = grp["group"].lower().replace(" ", "-")
     for idx, sc in enumerate(grp["subcats"]):
         levers = sc["levers"]
         avg_val = round(sum(lv["value"] for lv in levers) / len(levers)) if levers else 1
         lever_ids = ",".join(lv["id"] for lv in levers)
-        group_values.extend(lv["value"] for lv in levers)
-        group_lever_ids.extend(lv["id"] for lv in levers)
         for lv in levers:
             hidden_inputs.append(
                 f'<input type="hidden" id="{lv["id"]}" value="{lv["value"]}" data-max="{lv["max"]}">')
@@ -190,19 +246,31 @@ def _render_box(grp, flyouts):
         # leaves lv40 at 3 and its siblings at 4. updateLeverRow() knows to
         # read that back as a saturated row rather than a mixed one.
         row_max = max((lv["max"] for lv in levers), default=4)
-        # Tooltip descriptions only for a single-lever row: a multi-lever
-        # row's dot is an average across levers whose OWN level-N notes may
-        # not agree with each other, so there's no one honest sentence for
-        # the shared dot to show.
+        # data-descs only for a single-lever row. A bundled row's dot is one
+        # position over levers whose OWN level-N notes may not agree, so there
+        # is no single honest sentence for it — and the answer is NOT to hand
+        # the row all of them. Its tooltip describes the control itself (what
+        # it moves, where it sits); the individual notes are read one at a time
+        # by hovering the levers in that row's flyout, which is where each note
+        # sits beside the lever it belongs to. See initLeverTooltip.
         row_descs = levers[0].get("descs", {}) if len(levers) == 1 else {}
-        lever = _lever_html(avg_val, row_max, row_descs)
+        lever = _lever_html(avg_val, row_max, row_descs, lever_count=len(levers))
         count_hint = f" &middot; {len(levers)}" if len(levers) > 1 else ""
         label = _subcat_label(sc["category"], levers)
-        # Long lever names get ellipsised by CSS, so the tooltip carries the
-        # label actually shown plus how many levers it moves — not the parent
-        # category, which told you nothing about a truncated row.
-        tip = f"{label} ({len(levers)} levers)" if len(levers) > 1 else label
-        expand_btn = ""
+        # No `title` on the label any more. Long names are still ellipsised by
+        # CSS, but a native title here meant TWO tooltips on one row: the
+        # browser's own dark box over the name and the deck's white popup over
+        # the track, in different places, in different styles, each saying half
+        # of it. The popup is bound to the whole row now (initLeverTooltip) and
+        # its first line is the full name, so hovering a truncated label still
+        # reads it — in the one box that also says where the row sits.
+        # A single-lever row has no flyout to open, so no chevron — but it
+        # still reserves the chevron's slot. Without it the row's label (and
+        # therefore its slider, which starts where the label ends) sat 19px
+        # left of every expandable row's, so the tracks in a column with a
+        # mix of both — Network and Systems, Costs/Economy — did not line up
+        # with each other.
+        expand_btn = '<span class="lg-expand-spacer" aria-hidden="true"></span>'
         if len(levers) > 1:
             flyout_id = f"flyout-{group_slug}-{idx}"
             expand_btn = (
@@ -215,17 +283,24 @@ def _render_box(grp, flyouts):
         subcat_rows.append(f"""
           <div class="lg-subcat-row" data-lever-ids="{lever_ids}">
             {expand_btn}
-            <span class="lg-subcat-title" title="{tip}">{label}<span class="lg-subcat-count">{count_hint}</span></span>
+            <span class="lg-subcat-title">{label}<span class="lg-subcat-count">{count_hint}</span></span>
             {lever}
           </div>""")
-    avg_all = round(sum(group_values) / len(group_values), 1) if group_values else 1.0
+    # No badge on the group head at all. It has now been three things and none
+    # of them earned the space: "avg N.N" (an average of levels, which has no
+    # unit and read "1.0" in all six boxes at once), then "21 levers - L3-4"
+    # (real, but a lever COUNT is not something the reader is deciding
+    # anything with, and six of them across the deck head was noise the user
+    # called out directly). What the group is doing is legible from the rows
+    # themselves — that is what the sliders are for — and the loaded pathway
+    # is named twice already, in the deck's own select and in the chip beside
+    # the tabs. So the head is just the group's name.
     place_cls = GROUP_CLASSES.get(grp["group"], "")
     title = GROUP_DISPLAY_NAMES.get(grp["group"], grp["group"])
     return f"""
-      <div class="lg-box {place_cls}" data-lever-ids="{','.join(group_lever_ids)}">
+      <div class="lg-box {place_cls}">
         <div class="lg-box-head">
           <span class="lg-box-title">{title}</span>
-          <span class="lg-box-avg">avg {avg_all:.1f}</span>
         </div>
         <div class="lg-subcats">{''.join(subcat_rows)}</div>
         {''.join(hidden_inputs)}

@@ -1,12 +1,83 @@
+/* ══ Type: one family, Roboto, every role ══════════════════════════════════
+   Self-hosted, subsetted, no third-party request. This is a
+   .gov.in-adjacent site: it once pulled Ranade from Fontshare's CDN and four
+   Google-hosted families on every page load, which is a third-party
+   dependency in the critical path and a visitor-log leak to two companies.
+   ONE woff2, 42.7 KB, built by tools/build_fonts.py.
+
+   This replaced a three-family system (Instrument Serif for display, IBM
+   Plex Mono for numeric readouts, IBM Plex Sans for everything else — six
+   static files, 102 KB). The three --font-* tokens below all point at Roboto
+   now, so the ~47 rules that reference a role still read as roles and a
+   future display face is a one-line change rather than a sweep.
+
+   Two consequences of collapsing to one family, both deliberate:
+     - The display steps (--t-kpi/--t-chart/--t-section) keep weight 400, so
+       the KPI figures and chart titles are now plain Roboto rather than a
+       serif. Hierarchy is carried by size alone. If they read too light,
+       those three steps taking 500 is the one-line fix.
+     - The caption step keeps its uppercase letter-spaced treatment but is no
+       longer monospaced. This costs nothing structurally: Roboto's digits are
+       equal-advance (all 1151/2048, asserted by the build), which is the
+       property the numeric readouts actually depended on — see the tabular
+       figures note below.
+
+   VARIABLE font, one file, `font-weight: 100 900`: the interface asks for
+   four weights (400/500/600/700) and this resolves each exactly, with no
+   static-instance mapping to maintain. The build pins `wdth` to 100, since
+   nothing here sets font-stretch.
+
+   The scale is seven steps, below. Components reference a step
+   (`font: var(--t-body)`) and never a raw size, which is what stops the scale
+   drifting back to nineteen sizes. If something needs a size that is not a
+   step, it is the wrong role for that element.
+
+   ONE THING ROBOTO CANNOT DO, so do not reintroduce it as text: it contains
+   **no arrows and no triangles** — of its 927 codepoints U+2190-2193 and
+   U+25B2/U+25BC are all absent (checked against the upstream TTF). The
+   Insights panel needs an arrow and up/down badges, so those are an inline
+   SVG and CSS borders respectively. A shape cannot silently fall back to
+   whatever the OS has, which is exactly what a missing glyph would do. */
+@font-face {
+  font-family: "Roboto"; font-style: normal; font-weight: 100 900;
+  font-display: swap; src: url("/static/fonts/roboto-var.woff2") format("woff2");
+}
+
 * { box-sizing: border-box; }
 html, body { min-height: 100%; margin: 0; }
 :root {
-  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
-  --head: "Ranade", "Space Grotesk", "IBM Plex Sans", sans-serif;
+  /* One family behind all three role tokens. The roles are kept as separate
+     names on purpose: every rule and the --t-* steps still declare which job
+     they are doing, so putting a distinct display or mono face back is three
+     lines here rather than an edit across the stylesheet.
+     Arial/Helvetica ahead of the generic: Roboto's metrics are close to
+     theirs, so a `swap` before the webfont lands does not move the layout
+     much. (The previous serif needed a measured `size-adjust` fallback face
+     for exactly this reason; Roboto does not, so that face is gone.) */
+  --font-roboto: "Roboto", "Helvetica Neue", Arial, system-ui, sans-serif;
+  --font-sans: var(--font-roboto);
+  --font-mono: var(--font-roboto);
+  --font-serif: var(--font-roboto);
+
+  /* ── The scale. Only these seven. ──────────────────────────────────────
+     Declared as `font` shorthands so a component cannot take the size
+     without also taking the family, weight and leading that belong to the
+     role. NOTE the shorthand resets font-variant-numeric, so any rule that
+     wants tabular figures must declare them AFTER `font:` — see .num. */
+  --t-kpi:     400 40px/1.1 var(--font-serif);   /* KPI figures */
+  --t-chart:   400 22px/1.2 var(--font-serif);   /* chart titles */
+  --t-section: 400 20px/1.2 var(--font-serif);   /* section headings */
+  --t-body:    400 14px/1.5 var(--font-sans);    /* body, controls */
+  --t-label:   400 13px/1.4 var(--font-sans);    /* labels, legend */
+  --t-caption: 500 11px/1.3 var(--font-mono);    /* numeric captions */
+  --t-axis:    400 11px/1.2 var(--font-sans);    /* axis ticks */
+
   --ink: #101114;
-  /* Small muted text sits directly on --bg in places (.sankey-legend,
-     .pathway-chip-label) as well as on white cards, so it is checked against
-     both: 5.20:1 on the ground, 5.64:1 on white. */
+  /* Small muted text sits directly on --bg in places (.pathway-chip-label,
+     .panel-sub) as well as on white cards, so it is checked against both:
+     5.20:1 on the ground, 5.64:1 on white. (.sankey-legend used to be one of
+     these; it lives on the Energy Flows dark strip now and carries its own
+     light ink there.) */
   --muted: #5F6875;
   --muted-2: #8a8f9a;
   --line: #E1E4E7;
@@ -18,14 +89,25 @@ html, body { min-height: 100%; margin: 0; }
      kind of value that gets dialled: darker for more presence, or toward
      #A8C0D8 for a whisper. */
   --rule-accent: #8FAEC9;
-  /* The GHG gauge's box. A light blue in its own right rather than a tint of
-     --rule-accent (which it was: color-mix 80% denim + white = #A5BED4) —
-     mixing a desaturated denim toward white only ever gives a pale grey-blue,
-     never a light blue that still reads blue. It therefore no longer tracks
-     the rule colour; that is deliberate, and why it is its own token.
-     Dark labels sit on it at 13.4:1, and the gauge's deeper track reads
-     against it at 2.97:1. */
-  --gauge-box: #C8E1F5;
+  /* ── The GHG gauge, on dark ─────────────────────────────────────────────
+     The box was a light blue (#C8E1F5) with a deep-denim track and a light
+     green meter on it. Every pair in that arrangement was individually legal
+     and the whole still read badly: the meter is a LIGHT green, so on a light
+     box the bar and its surround were the same weight and the gauge stopped
+     announcing itself as a gauge — measured, green against box was 1.26:1.
+     Dark box fixes it at the root: a light meter on a dark ground is the
+     highest-contrast arrangement available, and the numbers all improve
+     rather than trade off. Measured, all four pairs:
+       meter on track       5.07:1   (was 2.63)
+       track inside box     1.76:1   (reads as a recess)
+       labels on box       12.91:1   (was 13.41 dark-on-light — a wash)
+       box vs the white page above  17.52:1, vs the deck band below 14.96:1
+     Navy rather than black, so it belongs with --rule-accent and
+     --deck-divider rather than introducing a fifth neutral. */
+  --gauge-box: #0F1A28;
+  --gauge-track: #2E4460;
+  --gauge-meter: #79CE3B;   /* PALETTE.lime — the chart/Sankey register */
+  --gauge-ink: #D6DEE8;
   /* ── Effort ramp (ambition level 1→4) ────────────────────────────────────
      ONE definition, referenced everywhere the ramp appears: the lever
      fill/thumb, the Predefined-scenarios dots, the pathway chip, the deck's
@@ -43,10 +125,10 @@ html, body { min-height: 100%; margin: 0; }
        - Luminance DARKENS monotonically (0.357 > 0.283 > 0.129 > 0.122), so
          the level still reads if colour is lost. An earlier pass at this
          register did not (grey was lighter than the blue two steps up).
-       - --lvl-3 and --lvl-4 carry WHITE text (.cdh-pathway-btn.active, the
-         Insights direction badges), so both clear 4.5:1 against white: 5.86:1
-         and 6.12:1. The obvious brighter picks failed — #2E7EB8 gave 4.38:1
-         and a #4E9F4E green only 3.28:1.
+       - --lvl-3 and --lvl-4 carry WHITE text (the Insights direction badges;
+         the preset buttons that also did are a select now), so both clear
+         4.5:1 against white: 5.86:1 and 6.12:1. The obvious brighter picks
+         failed — #2E7EB8 gave 4.38:1 and a #4E9F4E green only 3.28:1.
 
      Level 5 exists only for lv49 ("Fuel Switching Choices - Iron and Steel"),
      the one lever in the workbook that goes that far.
@@ -64,8 +146,8 @@ html, body { min-height: 100%; margin: 0; }
      a change of surface. That is EU-Calc's own arrangement too — their
      content plane is white throughout.
      --surface-2 exists because --bg was doing two jobs: the page ground AND
-     the faint fill behind hovers and chips (.menu-btn:hover, .drawer-item:hover,
-     .insights-group-label). Those need a tint to be visible at all, so they
+     the faint fill behind hovers and chips (.menu-btn:hover,
+     .drawer-item:hover). Those need a tint to be visible at all, so they
      take --surface-2 and stop tracking the ground. */
   --bg: #FFFFFF;
   --surface-2: #F1F3F5;
@@ -73,22 +155,43 @@ html, body { min-height: 100%; margin: 0; }
   /* Control deck. Everything inside the deck derives from these tokens, which
      is why re-colouring the band is a handful of values rather than a rewrite.
 
-     The deck keeps a grey band even though the page ground is white, matched
-     to EU-Calc's own left-hand control sidebar: their controls sit on light
-     neutral grey against a white content plane, which is exactly the
-     relationship here — and it is now the only surface change left on the
-     page, so it is what tells you the controls are not more data. Neutral
-     (equal R/G/B) rather than the cool-tinted grey used earlier; theirs is
-     neutral and it reads cleaner against pure white.
+     The deck keeps a neutral grey band even though the page ground is white,
+     matched to EU-Calc's own left-hand control sidebar: their controls sit on
+     light neutral grey against a white content plane, which is exactly the
+     relationship here — and it is the only surface change left on the page,
+     so it is what tells you the controls are not more data. Neutral (equal
+     R/G/B) rather than a cool-tinted grey; theirs is neutral and it reads
+     cleaner against pure white.
+
+     Tried and reverted: BEIGE (#F2EADA band, #D8CDB8 line, #C7BCA4 track).
+     The contrast numbers were all fine or better than the greys' — 1.20:1
+     against the page where the grey manages 1.14, and the warmed track went
+     1.38 -> 1.57 — but on screen the warm band read badly against the white
+     plane and the dark masthead, so it went back. Not worth re-attempting on
+     measurements alone; this one is a look judgement.
 
      --deck-panel is no longer painted by the group lists — those lost their
      boxes and sit on the band directly. It survives for the two things in the
      deck that are genuinely raised: the Predefined-scenarios buttons and the
-     sub-lever flyout rail. */
+     sub-lever flyout rail. White on beige (1.20:1) is what makes those two
+     read as lifted. */
   --deck-bg: #EDEDED;
   --deck-panel: #FFFFFF;
   --deck-line: #D4D4D4;
   --deck-row-line: rgba(16,17,20,.10);
+  /* Vertical rule between the deck's group columns. Navy rather than the
+     neutral --deck-line greys, same hue family as --accent (#29699A) two
+     steps darker, so it reads as part of this palette rather than as a
+     borrowed black.
+     It is NOT painted at full strength — see .lg-col::before, which fades it
+     top and bottom and holds it at 30%. Solid, this navy measures 8.87:1
+     against the deck band, about seven times harder than any other hairline
+     in the interface (--line on white and --deck-line on the band are both
+     ~1.27:1, and the tab row's deliberate --rule-accent is 2.32:1). At that
+     weight it read as a bar boxing each column in rather than as a division
+     between them. Held at 30% it composites to ~#AAB6C2, 1.76:1 — the same
+     order of presence as the tab rule. */
+  --deck-divider: #1D4266;
   --deck-ink: #14161A;
   --deck-ink-2: #454B54;
   /* Checked against the BAND, not the panel: the band is the darker of the
@@ -119,12 +222,47 @@ html, body { min-height: 100%; margin: 0; }
   --ui-scale: 0.9;
 }
 body {
-  font-family: "Ranade", "IBM Plex Sans", -apple-system, "Segoe UI", Arial, sans-serif;
+  font: var(--t-body);
   background: var(--bg);
   color: var(--ink);
   zoom: var(--ui-scale);
 }
 a { text-decoration: none; color: inherit; }
+
+/* The "2" in every GtCO₂. This was a <sub> out of necessity — Instrument
+   Serif had no U+2082 at all — and it stays one by choice: Roboto does carry
+   U+2082 (verified), but the markup is already here, already tuned, and
+   renders identically, so swapping it for the codepoint would be churn with
+   no gain. The explicit line-height:0 is the load-bearing part: a default
+   <sub> raises the line box, which on a 40px KPI figure pushed the card
+   taller than its neighbour. */
+sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
+
+/* ── Tabular figures ─────────────────────────────────────────────────────
+   On every number that changes while the reader watches: KPI figures, chart
+   axis ticks, legend values, the Sankey's readout and its hover tooltip.
+   Applied via a class AND directly on the numeric roles, because the `font`
+   shorthand above resets font-variant-numeric — declaring it inside a rule
+   that also sets `font:` only works in this order.
+
+   Worth knowing what this does and does not buy, measured from the shipped
+   file: Roboto's digits are ALREADY equal-advance (all 1151/2048 units), and
+   tools/build_fonts.py now asserts that rather than noting it — so these
+   declarations are belt-and-braces, and, more usefully, the canvas-drawn
+   chart axes, chart tooltips and Sankey readout cannot jitter either, even
+   though canvas 2D offers no way to ask for tabular figures at all.
+
+   This is the one place the old three-family system had a real weakness that
+   collapsing to Roboto removed: Instrument Serif's digits were proportional
+   (249-460 units) with no tabular feature to switch to, so this rule was
+   INERT on the 40px KPI figures — the largest changing numbers on the page.
+   Roboto covers them properly. Roboto also ships an actual `tnum`, unlike
+   IBM Plex, which needed none. */
+.num, .stat-value, .panel-unit, .sankey-total, .sankey-tooltip,
+.cdh-emissions-value, .cdh-emissions-max, .insights-line strong {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
 
 /* header -> .page-grid (tab row/KPI cards/charts, with the Insights card in
    a second column to their right) -> Custom Pathways (.control-deck-h,
@@ -172,11 +310,15 @@ a { text-decoration: none; color: inherit; }
   border-radius: 6px;
   box-sizing: content-box;
 }
+/* The one element the role list does not name, so the reasoning is here.
+   The site's own title is display text — it is not body, not a label, not a
+   numeric readout — so it takes the display face, and it takes an EXISTING
+   step (--t-chart, 22px) rather than the 29px it used to have, because the
+   scale is closed. It is deliberately not the KPI step: the largest type on
+   the page should be the projection, not the masthead. */
 .site-banner-title {
-  font-family: var(--head);
-  font-size: 18.5px;
-  font-weight: 700;
-  letter-spacing: .045em;
+  font: var(--t-chart);
+  letter-spacing: .02em;
   color: #fff;   /* 10.2:1 on the band */
 }
 
@@ -227,7 +369,7 @@ a { text-decoration: none; color: inherit; }
 .drawer-nav { display: flex; flex-direction: column; padding: 18px 0; }
 .drawer-item {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 13px 20px; font-size: 13.5px; font-weight: 500; color: var(--ink);
+  padding: 13px 20px; font: var(--t-body); font-weight: 500; color: var(--ink);
 }
 .drawer-item:hover { background: var(--surface-2); color: var(--accent); }
 .drawer-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -251,39 +393,101 @@ a { text-decoration: none; color: inherit; }
   border-bottom: 1px solid var(--rule-accent);
 }
 
-/* ── Pill tab selector ──────────────────────────────────────────────── */
-.pill-tabs { display: flex; gap: 2px; background: #E7EAEC; border-radius: 9px; padding: 3px; width: fit-content; max-width: 100%; flex-wrap: wrap; flex: none; }
-.pill-tab { padding: 6px 13px; border-radius: 7px; font-size: 12.5px; font-weight: 400; color: var(--muted); white-space: nowrap; cursor: pointer; }
+/* ── Pill tab selector ────────────────────────────────────────────────
+   Grouped, not nine-in-a-row. One flat evenly-spaced strip of nine claimed
+   nine equally-weighted modules; they are three kinds of thing (physical
+   energy / impacts / money — see tabs.py), so the row is three labelled
+   clusters separated by a rule. The label is what does the work: a separator
+   alone would have implied structure without saying what it was. */
+.pill-tabs { display: flex; align-items: stretch; gap: 0; width: fit-content; max-width: 100%; flex-wrap: wrap; flex: none; }
+.pill-group { display: flex; flex-direction: column; gap: 3px; padding: 0 14px; border-left: 1px solid var(--line); }
+.pill-group:first-child { padding-left: 0; border-left: 0; }
+.pill-group-label { font: var(--t-axis); color: var(--muted-2); padding-left: 3px; }
+.pill-group-tabs { display: flex; gap: 2px; background: #E7EAEC; border-radius: 9px; padding: 3px; }
+.pill-tab { padding: 6px 13px; border-radius: 7px; font: var(--t-body); color: var(--muted); white-space: nowrap; cursor: pointer; }
 .pill-tab.active { font-weight: 600; color: var(--ink); background: #fff; box-shadow: 0 1px 2px rgba(16,17,20,.12); }
 .pill-tab:hover:not(.active) { color: var(--ink); }
 .pill-tab.disabled { opacity: .45; cursor: not-allowed; }
+/* Critical Minerals has no model behind it yet, so it does not get to look
+   like the eight that do. */
+.pill-tab.upcoming { color: var(--muted-2); }
+.pill-tab.upcoming::after {
+  content: "soon"; margin-left: 7px; font: var(--t-axis); letter-spacing: .04em;
+  padding: 1px 5px; border-radius: 999px; background: var(--surface-2); color: var(--muted-2);
+  vertical-align: 1px;
+}
+/* Energy Flows is the purpose-built view (full-bleed Sankey, own control
+   strip) and its tab carries a mark of that — the same denim as the rule
+   under the tab row, so it reads as part of the page's own language. */
+.pill-tab.featured:not(.active) { color: var(--accent); }
+.pill-tab.featured::before {
+  content: ""; display: inline-block; width: 5px; height: 5px; border-radius: 1px;
+  background: var(--accent); margin-right: 7px; vertical-align: 2px;
+}
 
-/* Pathway indicator chip, right end of the tab row. Dot colour keys off the
-   same four-effort ramp as the deck's own Key legend/level chips. */
+/* Pathway chip, right end of the tab row: dot + label + the predefined-
+   scenario <select>. It is both the readout and the chooser — the select
+   moved here out of the Custom Pathways head, where it duplicated the state
+   this chip was already reporting. Dot colour keys off the same four-effort
+   ramp as the levers themselves. */
 .pathway-chip {
   display: flex; align-items: center; gap: 8px; flex: none;
   background: #fff; border: 1px solid var(--line); border-radius: 999px;
-  padding: 6px 14px; font-size: 12px;
+  /* Less on the right: the select carries its own chevron padding. */
+  padding: 3px 6px 3px 14px; font: var(--t-body);
+  transition: border-color .12s;
 }
+.pathway-chip:hover { border-color: #9AA2AC; }
+/* Borderless inside the chip — the pill is already the control's edge, and a
+   second bordered box inside it reads as two controls. The chevron is drawn
+   as a background image rather than as an added element, so this stays one
+   native <select> with nothing overlaying its hit area. */
+.pathway-chip-select {
+  height: 28px; padding: 0 26px 0 4px; margin: 0;
+  border: 0; border-radius: 999px; background-color: transparent;
+  color: var(--ink); font: var(--t-body); font-weight: 600; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2314161A' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 13px 13px;
+}
+.pathway-chip-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The custom state reads as a state, not as a selection: no preset is loaded,
+   so the control is shown unset rather than pretending otherwise. */
+.pathway-chip-select:invalid, .pathway-chip-select option[value=""] { color: var(--muted); }
 .pathway-chip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--lvl-1); flex: none; }
 .pathway-chip[data-level="1"] .pathway-chip-dot { background: var(--lvl-1); }
 .pathway-chip[data-level="2"] .pathway-chip-dot { background: var(--lvl-2); }
 .pathway-chip[data-level="3"] .pathway-chip-dot { background: var(--lvl-3); }
 .pathway-chip[data-level="4"] .pathway-chip-dot { background: var(--lvl-4); }
 .pathway-chip[data-level="custom"] .pathway-chip-dot { background: #C8D0DC; }
-.pathway-chip-label { font: 500 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
-.pathway-chip-value { font-family: var(--head); font-size: 12.5px; font-weight: 600; color: var(--ink); }
+/* ── One role for the small-caps mono ─────────────────────────────────────
+   The mono face at small size with wide letter-spacing was on section
+   headers, KPI captions, the footer, the pathway name and a clock all at
+   once, which made it read as a decorative skin rather than as a signal.
+   It now means exactly one thing: THIS IS A MEASUREMENT — a metric's caption
+   ("FINAL DEMAND 2047", "GHG 2047"), its unit ("Mtoe"), or a figure itself
+   (.lg-subcat-count, .sankey-total). That is the Sankey's own
+   convention, which already got this right: mono for "Total primary supply:
+   2902.5 Mtoe", plain sans for the node labels.
+   Everything that is a heading, a label for a name, or a status word is plain
+   sans below — including this one, which captions a pathway NAME. */
+.pathway-chip-label { font: var(--t-label); font-weight: 500; color: var(--muted); cursor: pointer; }
+/* .pathway-chip-value was the pathway's name as static text. The <select> in
+   the chip displays that name itself now, so a separate readout beside it
+   would have been the same word twice. */
 
-/* ── Page grid: tab row/KPI cards/charts column + Insights card ────────── */
-/* Replaces the old .content-row flex row. Covers the tab row + KPI cards +
-   charts ONLY — Custom Pathways (.control-deck-h) renders after this grid
-   closes, full-width, so the column ends where the charts end rather than
-   running alongside it too.
-   The Insights panel is the SECOND track (and the second child in base.py):
-   it sits to the right of the charts. It used to be a full-bleed blue column
-   on the left, which is why this grid carried a negative margin-left to
-   cancel .page's own inset — that's gone with the bleed, so both edges now
-   sit on the normal page inset like every other section.
+/* ── Page grid: the tab row, KPI cards and charts ───────────────────────── */
+/* ONE column now. This was a two-track grid with the Insights card in a 268px
+   second track beside the charts; Insights has moved into the Custom Pathways
+   band (see .lg-insights-col), which had that much unused width to the right
+   of its lever columns anyway. So every chart on every tab got ~282px of
+   width back — and it is still a grid rather than a plain block because
+   the layout notes below key off it, and because a second track may well
+   come back.
+   It covers the tab row + KPI cards + charts ONLY: Custom Pathways renders
+   after this grid closes, full-width.
    flex:0 0 auto (natural height) — a flex-grow cascade down through
    .main-col/.view.active/.chart-duo into the actual chart-wrap tiers was
    tried here (so charts could grow to fill leftover viewport height), but
@@ -293,62 +497,66 @@ a { text-decoration: none; color: inherit; }
    further down are simply bigger FIXED values now instead — bigger than
    the original tuning, but a fixed size can't ever mismatch its own
    container the way a capped-partway-through-a-growth-chain one can. */
-.page-grid { flex: 0 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 268px; gap: 14px; align-items: start; }
-/* Energy Flows only (dashboard.js toggles both this and #pathway-rail's
-   [hidden]) — collapses the rail's own column so main gets the width back,
-   the grid equivalent of the old flex row's "hide a sibling" trick. */
-.page-grid.rail-hidden { grid-template-columns: minmax(0, 1fr); }
+.page-grid { flex: 0 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
+/* .page-grid.rail-hidden was here: Energy Flows collapsed the Insights track
+   so the Sankey got its width back. Both the rule and the class that toggled
+   it are gone — the grid is single-column on every tab now, and Insights is a
+   Custom Pathways column where the Sankey never competed with it. */
 .page-main { min-width: 0; display: flex; flex-direction: column; }
 .main-col { flex: 0 0 auto; min-width: 0; }
 
-/* A card, not a column. This was a full-height blue gradient panel bleeding
-   off the left edge of the window — one flat slab of colour carrying small
-   black text, which is what made it read as monotonous next to the white
-   cards it sat beside. It's now the same card language as .panel/.stat-card
-   (white, 1px --line border, 10-12px radius) so it belongs to the same
-   family, with its own identity carried by detail rather than by a wash of
-   colour: an accent hairline along the top, a tinted icon tile in the
-   header, and a rule under it separating header from content.
-   align-self:start (from .page-grid's align-items:start) rather than the
-   grid's default stretch: a card should be as tall as its content, not as
-   tall as whatever chart sits next to it. sticky keeps it in view while the
-   page scrolls.
+/* ── Insights: the deck's right-hand column ──────────────────────────────
+   Its history, briefly, because it has moved three times: a full-bleed blue
+   gradient column on the LEFT of the page, then a white card in a second
+   page-grid track on the RIGHT of the charts, and now a column of the Custom
+   Pathways band. The move off the page grid is what gave every chart its
+   width back; the band already had unused space to the right of its lever
+   columns, so this costs nothing.
+   It sits immediately after the lever region (.lg-cols) — NOT pushed to the
+   far edge of the window. `margin-left: auto` used to pin it right, which on a
+   wide monitor opened several hundred pixels of nothing between the controls
+   and the commentary about those controls, and made the two read as unrelated
+   halves of the band. The levers now flex to fill their own fixed region
+   instead, so the gap closes from the left and this panel stays put whatever
+   the rail is doing. It carries the same faded navy rule the lever columns
+   carry between them (--deck-divider), so the separation between controls and
+   commentary reads like the separations between control groups.
+   No background of its own: the group lists sit directly on the band and so
+   does this. The header's tinted icon tile and the rule under it are what
+   give it a focal point — that treatment survives from the card version.
 
-   Do NOT give this card a max-height derived from --ui-scale (a
-   `calc(100vh / var(--ui-scale))` cap plus overflow-y:auto was tried here and
-   reverted). fitUiScale() computes --ui-scale FROM the content's height, so a
-   height that reads --ui-scale back closes the loop: the two chase each other
-   and layout never settles. It doesn't degrade gracefully either — it hung
-   the page outright at 3440x1297 while staying fine at 1366x768, since
-   whether it converges depends on the numbers. Any cap here has to be a plain
-   px value, independent of both the scale and the viewport. Uncapped is fine
-   in practice: renderInsights() emits at most two groups and a handful of
-   lines, and if it ever did run long the card simply grows and the fit scales
-   the UI down to suit. */
-.pathway-rail {
-  position: sticky; top: var(--page-top);
+   Do NOT give this a max-height derived from --ui-scale (a
+   `calc(100vh / var(--ui-scale))` cap plus overflow-y:auto was tried on the
+   card version and reverted). fitUiScale() computes --ui-scale FROM the
+   content's height, so a height that reads --ui-scale back closes the loop:
+   the two chase each other and layout never settles. It does not degrade
+   gracefully either — it hung the page outright at 3440x1297 while staying
+   fine at 1366x768, since whether it converges depends on the numbers. Any
+   cap here has to be a plain px value, independent of both the scale and the
+   viewport. */
+.lg-insights-col {
+  position: relative;
+  flex: 0 1 300px; min-width: 0; max-width: 340px;
   display: flex; flex-direction: column;
-  padding: 13px 15px 14px;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: 0 1px 2px rgba(16,17,20,.04), 0 10px 26px -20px rgba(16,17,20,.28);
-  overflow: hidden;
+  padding-left: 20px;
 }
-/* The accent hairline. Sits inside the radius via the card's own overflow
-   clip, so it needs no matching corner values of its own. */
-.pathway-rail::before {
-  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-  background: linear-gradient(90deg, var(--accent) 0%, var(--lvl-2) 100%);
+.lg-insights-col::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 1px;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    color-mix(in srgb, var(--deck-divider) 30%, transparent) 18%,
+    color-mix(in srgb, var(--deck-divider) 30%, transparent) 76%,
+    transparent 100%);
 }
-.pathway-rail[hidden] { display: none; }
+.lg-insights-col[hidden] { display: none; }
 
 .rail-insights { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 /* Header: tinted icon tile + label, over a full-width rule. The tile is what
    gives the card a focal point now that the whole panel isn't coloured. */
 .rail-insights-head {
   flex: none; display: flex; align-items: center; gap: 9px;
-  font: 700 10.5px/1 var(--mono); letter-spacing: .09em; text-transform: uppercase; color: var(--ink);
+  font: var(--t-body); font-weight: 600; color: var(--ink);
   padding-bottom: 10px; margin-bottom: 2px;
   border-bottom: 1px solid var(--line);
 }
@@ -358,25 +566,13 @@ a { text-decoration: none; color: inherit; }
 }
 .rail-insights-body {
   flex: 1 1 auto; min-height: 0;
-  font-size: 12px; line-height: 1.55; color: var(--ink);
+  font: var(--t-body); color: var(--ink);
 }
-/* Small caps label ahead of each group (lever changes vs. their knock-on
-   effect on the numbers) — the "line of segregation" that splits what used to
-   be one undifferentiated list into two legible groups. The colours here were
-   rgba(ink) mixes picked to sit on the old blue panel; on white they resolve
-   to the page's own --muted/--line tokens, so the card matches the rest of
-   the UI instead of carrying its own private palette. The group label reads
-   as a chip now rather than a bordered heading — the header rule above it
-   already does the dividing, so a second full-width rule was just noise. */
-.insights-group-label {
-  display: inline-block;
-  font: 700 9.5px/1 var(--mono); letter-spacing: .09em; text-transform: uppercase;
-  color: var(--muted);
-  background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px;
-  padding: 5px 9px; margin: 14px 0 4px;
-}
-.insights-group-label:first-child { margin-top: 8px; }
-/* Each line gets its own divider too (padding+border, not a bottom margin),
+/* .insights-group-label (a small-caps chip ahead of each group) was removed
+   with the lever-change list it separated from the KPI effects — the panel
+   shows one list now, directly under its own "Insights" header, so there is
+   nothing left for a second heading to divide. */
+/* Each line gets its own divider (padding+border, not a bottom margin),
    and the direction badge is a small filled chip instead of a bare glyph —
    reusing the same ramp colors as the effort-level chips elsewhere
    (LEVEL_FILL's blue/green) rather than introducing new ones, so "raised"
@@ -386,26 +582,117 @@ a { text-decoration: none; color: inherit; }
   padding: 9px 0; border-bottom: 1px solid var(--line);
 }
 .insights-line:last-child { border-bottom: 0; padding-bottom: 0; }
+/* The triangle inside the badge is drawn with borders, not set as a glyph.
+   Roboto has no U+25B2/U+25BC (nor any arrow), so a character here would have
+   been served by a system fallback inside a coloured chip. A CSS triangle has
+   no font dependency at all — the same answer this project reached for the
+   card-header caret when IBM Plex turned out not to cover "▾". */
 .insights-arrow {
   flex: none; width: 19px; height: 19px; margin-top: 1px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-size: 9px; line-height: 1;
 }
-.insights-arrow-up { background: var(--lvl-3); color: #fff; }
-.insights-arrow-down { background: var(--lvl-4); color: #fff; }
-/* The changed/baseline figure in its own font (var(--head), the same one
-   the big KPI card numbers use) rather than just bolding the body font —
-   a real typographic contrast between "what happened" (body copy) and
-   "the number" (display face), not just a weight bump. */
-.insights-line strong { font-family: var(--head); font-weight: 700; letter-spacing: -.01em; }
+.insights-arrow::before {
+  content: ""; display: block;
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
+}
+.insights-arrow-up { background: var(--lvl-3); }
+.insights-arrow-down { background: var(--lvl-4); }
+/* 1px of optical nudge each way: a triangle's visual centre sits toward its
+   base, so a geometrically centred one reads as slightly high or low. */
+.insights-arrow-up::before { border-bottom: 5px solid #fff; margin-bottom: 1px; }
+.insights-arrow-down::before { border-top: 5px solid #fff; margin-top: 1px; }
 
-/* ── KPI stat cards (All Energy only) ───────────────────────────────── */
-.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 10px; }
-.stat-card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px 11px; }
-.stat-label { font: 500 10.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
-.stat-value { font-family: var(--head); font-size: 22px; font-weight: 700; letter-spacing: -.02em; color: var(--ink); margin: 6px 0 3px; }
-.stat-note { font-size: 11px; color: var(--muted); }
+/* The drawn before/after arrow (arrowEl()/ARROW_SVG in dashboard.js), for the
+   same reason. Sized in `em` so it tracks whatever line it lands in. */
+.in-arrow {
+  width: 1.05em; height: 1.05em; vertical-align: -.18em;
+  margin: 0 .18em; color: var(--muted); flex: none;
+}
+.sankey-tooltip .in-arrow { color: inherit; }
+/* The changed figure inside a sentence: a weight bump, nothing more. It used
+   to switch to the display face for contrast, which is now out of bounds —
+   the serif is for KPI figures and titles, and a number set into running
+   prose is prose. It keeps tabular figures (see .num) so a before/after pair
+   lines up. */
+.insights-line strong { font-weight: 600; }
+
+/* ── KPI stat cards (All Energy only) ─────────────────────────────────
+   Not four equal cards. `repeat(auto-fit, minmax(190px, 1fr))` gave the same
+   width and the same 32px figure to the number the model exists to project
+   (2047 demand), the tonnage of CO2 that comes with it, and two percentages
+   derived from the same supply total — four things of very different weight,
+   rendered identically, which is what made the row read as generated.
+   Two headline cards at ~1.6fr each, then one 1fr column holding the
+   supporting pair stacked. See all_energy.py. */
+/* Three columns since the emissions card left, and the supporting pair is no
+   longer stacked. It was `1.6fr 1.6fr 1fr` — two headline cards plus a narrow
+   column holding the pair one above the other. With one headline card left,
+   keeping that shape put the figure at the left edge of a box half the page
+   wide with nothing in the rest of it. The pair comes out of its stack via
+   `display: contents` on .stat-stack, so its two cards become grid items of
+   this row directly — no markup change, and all-energy.py keeps a wrapper it
+   still needs at the narrow breakpoint. */
+.stat-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px; margin-bottom: 10px; align-items: stretch;
+}
+.stat-stack { display: contents; }
+.stat-card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 9px 14px 8px; }
+.stat-label { font: var(--t-caption); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+/* 30px, down from the --t-kpi step's 40. The row was taking more height than
+   the two charts beneath it warranted, and --ui-scale then shrank everything
+   else to fit. Declared here rather than as a new scale step: --t-kpi is still
+   the role, this is the KPI row's own tighter size, and nothing else uses it.
+   `font:` shorthand resets font-variant-numeric, so the tabular declaration
+   in the .num block has to stay after this — it does. */
+.stat-value { font: var(--t-kpi); font-size: 30px; color: var(--ink); margin: 4px 0 2px; }
+.stat-note { font: var(--t-label); color: var(--muted); }
 .stat-note-accent { color: var(--lvl-4); }
+
+/* ── One accent per card ─────────────────────────────────────────────────
+   Four white boxes with one shared blue top edge read as a single object
+   repeated four times. Each card now takes a colour from the SAME five the
+   Sankey and the charts use (SANKEY_NODE_COLORS / PALETTE in dashboard.js),
+   chosen by what the number IS rather than decoratively:
+     final demand -> carrier amber   emissions -> losses red
+     clean share  -> source green    imported fuel -> technology blue
+   Colour lands on the top edge and a faint background wash. It deliberately
+   does NOT land on the caption or the figure: at 11px on white the lime
+   measures 2.2:1 and the amber worse, so a coloured caption would have
+   traded a real accessibility property for decoration. Measured on the washed
+   backgrounds instead — --muted holds 5.4:1 or better on all four. */
+.stat-card { border-top: 3px solid var(--stat-accent, var(--line)); }
+.stat-demand   { --stat-accent: #F4C56C; background: #FFFCF5; }
+/* .stat-emissions went with the emissions card (see all_energy.py); the
+   losses red it used is still the GHG gauge's and the charts' own. */
+.stat-clean    { --stat-accent: #79CE3B; background: #FAFEF5; }
+.stat-imports  { --stat-accent: #6CABF4; background: #F7FBFF; }
+
+/* The headline pair: a bigger figure and more room, so the two read as one
+   pair rather than as the first two of four. (The top edge is per-card now,
+   above, rather than one shared blue.) */
+.stat-card-lead { padding: 11px 18px 10px; }
+.stat-card-lead .stat-value { margin: 5px 0 3px; }
+
+/* The supporting pair: two compact rows in the narrow column, figure and
+   caption on one line at caption scale. Same data family as the leads, a
+   sixth of the ink. */
+/* .stat-stack is `display: contents` in the row above, so this rule only
+   governs the narrow breakpoint, where it becomes a real 2-up grid again. */
+.stat-stack { min-width: 0; }
+.stat-card-min { padding: 8px 13px 7px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+.stat-min-figure { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+/* 19px, from --t-chart's 22 — the whole row came down a step, see .stat-value. */
+.stat-card-min .stat-value { font: var(--t-chart); font-size: 19px; margin: 0; flex: none; }
+.stat-card-min .stat-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 1080px) {
+  /* Two columns: the headline spans both, the pair sits side by side beneath.
+     Three cards in a row is too tight for a figure and its caption on one
+     line at this width. */
+  .stat-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .stat-card-lead { grid-column: 1 / -1; }
+}
 
 /* ── Panels (All Energy / Electricity duo charts) ──────────────────────── */
 /* Chart containers carry no box. They were white cards with a 1px --line
@@ -416,21 +703,33 @@ a { text-decoration: none; color: inherit; }
    neighbour. */
 .panel { min-width: 0; background: transparent; border: 0; border-radius: 0; padding: 10px 14px 8px; margin-bottom: 8px; }
 
-/* Energy Demand + Energy Supply: two equal compact panels, one row. They
-   stack vertically once there isn't width for two readable charts side by
-   side (each still needs room for its right-hand legend). */
-/* Wider gap than the 10px used when each panel had its own border: with the
-   boxes gone, the gutter is the only thing separating two charts. */
+/* Energy Demand + Energy Supply. NOT 1fr 1fr any more, and the reason is
+   measurable rather than aesthetic: both charts carry a right-hand legend,
+   Supply's has ten entries against Demand's eight, and Supply owns the
+   longest label in the interface — "Oil and petroleum products", which the
+   equal split was clipping to "Oil and petroleum produc". The plot then got
+   whatever the legend left, so the CHART that had more to show was the one
+   drawn smaller.
+   1fr : 1.32fr is that difference, not a round number picked to look
+   deliberate. Any tab whose two panels genuinely are equivalent still gets
+   the equal split — this override is scoped to the wide panel's own class
+   (all_energy.py sets it), so Electricity's duo is untouched. */
 .chart-duo { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; margin-bottom: 8px; align-items: stretch; }
+.chart-duo:has(.chart-duo-supply-wide) { grid-template-columns: minmax(0, 1fr) minmax(0, 1.32fr); }
 .chart-duo .panel { margin-bottom: 0; }
 @media (max-width: 1080px) {
-  .chart-duo { grid-template-columns: 1fr; }
+  .chart-duo, .chart-duo:has(.chart-duo-supply-wide) { grid-template-columns: 1fr; }
 }
 .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 1px; flex-wrap: wrap; }
-.panel h2 { font-family: var(--head); font-size: 13.5px; font-weight: 600; margin: 0 0 1px; }
-.panel-unit { font: 400 10px/1 var(--mono); color: var(--muted); }
-.panel-sub { font-size: 11px; color: var(--muted); margin: 0 0 6px; }
-.panel .changed-note { display: none; font-size: 10px; color: #a0761f; font-weight: 700; margin-left: 6px; text-transform: uppercase; letter-spacing: .04em; }
+.panel h2 { font: var(--t-chart); margin: 0 0 1px; }
+/* Mono and tracked like the other captions, but NOT uppercased. "Mtoe" is a
+   unit symbol, not a label: the M is mega and the lowercase toe is tonne of
+   oil equivalent, so "MTOE" is simply wrong notation — and it shipped that
+   way for one pass here before this comment existed. The small-caps
+   treatment belongs to captions ("FINAL DEMAND 2047"), not to units. */
+.panel-unit { font: var(--t-caption); font-weight: 400; letter-spacing: .04em; color: var(--muted); }
+.panel-sub { font: var(--t-label); color: var(--muted); margin: 0 0 6px; }
+.panel .changed-note { display: none; font: var(--t-axis); color: #a0761f; font-weight: 700; margin-left: 6px; text-transform: uppercase; letter-spacing: .04em; }
 .panel.changed .changed-note, .panel.card.changed .changed-note { display: inline; }
 
 /* Four fixed chart heights, not one shared value — tuned so each tab's
@@ -445,40 +744,97 @@ a { text-decoration: none; color: inherit; }
    so these are bigger fixed numbers instead, which can't ever mismatch
    their own container. */
 .chart-wrap, .chart-wrap-duo { position: relative; }
-.chart-wrap-duo { height: 380px; }                /* All Energy — the reference */
-.chart-wrap-duo-lg { height: 460px; }              /* Electricity: .panel chrome, no KPI row */
+/* ── Four tiers, set so every tab FITS AT THE SAME --ui-scale ─────────────
+   This is what the four numbers are for, and the reason they differ.
+   fitUiScale() shrinks the whole interface until the footer meets the bottom
+   of the window, and it runs per tab — so a tab whose content is taller gets
+   a smaller scale, and the masthead, the deck, the type and everything else
+   visibly resize when you switch to it. All Energy is the tab that has a KPI
+   row, so it was the tall one: measured at 1920x1080, its content came to
+   1070 logical px against ~1020 for every other chart tab, giving scale 0.921
+   against their 0.966-0.973 — a 5.4% jump on every switch.
+
+   The fix is to take it out of the charts rather than out of the scale, which
+   is what the tiers do: each tab's chart height is set so its TOTAL content
+   height lands on the same ~1020, and the scale then comes out the same
+   everywhere. So All Energy's charts are the shortest precisely because it is
+   the only tab carrying KPI cards, and Electricity's are the tallest because
+   it has neither a KPI row nor a sub-tab row to pay for.
+
+   Derived from measurement, not taste: logical content height is
+   clientHeight / scale, so moving a tab from its own scale to the target is a
+   known number of pixels off (or onto) its one chart row. All Energy went
+   1070 -> 1020 logical, i.e. 380 - 50 = 330; then the KPI row lost its
+   stacked column (three cards in a row rather than one plus a 2-high stack,
+   97px instead of 126) and gave 29px back, so 359. Electricity was 7px short
+   of the target rather than over, hence 460 -> 467. Verified: every tab with
+   charts now fits at one scale — 0.966 at 1920x1080, 1.319 at 2560x1440.
+
+   IF A TAB'S STRUCTURE CHANGES (a KPI row added or removed, a sub-tab row
+   appearing, a chart moving between .panel and .card), these numbers drift
+   out of sync. Re-measure rather than nudging by eye: read the fitted scale
+   per tab, convert to logical height, and correct each tier by the
+   difference in one pass. */
+.chart-wrap-duo { height: 359px; }                 /* All Energy: the only tab with a KPI row */
+.chart-wrap-duo-lg { height: 467px; }              /* Electricity: .panel chrome, no KPI row */
 .chart-wrap-lg { height: 440px; }                  /* Emissions/Energy Security/Land & Water: .card chrome, no KPI, no subtabs */
 .chart-wrap { height: 400px; }                     /* Indicators/Costs: .card chrome, no KPI, has subtabs */
 
 /* ── Shared chart-grid/card (other 8 tabs) — same rounded v2 language ── */
 .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; margin-bottom: 8px; align-items: stretch; }
 .card { background: transparent; border: 0; border-radius: 0; padding: 11px 14px 9px; position: relative; }
-.card h3 { font-family: var(--head); font-size: 14px; font-weight: 600; margin: 0 0 2px; }
-.card .card-sub { font-size: 11.5px; color: var(--muted); margin: 2px 0 7px; }
-.card .changed-note { display: none; font-size: 10px; color: #a0761f; font-weight: 700; margin-left: 6px; text-transform: uppercase; letter-spacing: .04em; }
+.card h3 { font: var(--t-chart); margin: 0 0 2px; }
+.card .card-sub { font: var(--t-label); color: var(--muted); margin: 2px 0 7px; }
+.card .changed-note { display: none; font: var(--t-axis); color: #a0761f; font-weight: 700; margin-left: 6px; text-transform: uppercase; letter-spacing: .04em; }
 .card.changed .changed-note { display: inline; }
 
-#error { color: #c0392b; font-size: 12px; }
+#error { color: #c0392b; font: var(--t-body); }
 
 /* ── Views / tabs ───────────────────────────────────────────────────── */
 .view { display: none; }
 .view.active { display: block; }
 
 .subtabs { display: flex; gap: 3px; background: #E7EAEC; border-radius: 8px; padding: 2px; margin-bottom: 6px; width: fit-content; max-width: 100%; flex-wrap: wrap; }
-.subtab { font-size: 12px; font-weight: 400; color: var(--muted); cursor: pointer; padding: 4px 11px; border-radius: 6px; }
+.subtab { font: var(--t-body); color: var(--muted); cursor: pointer; padding: 4px 11px; border-radius: 6px; }
 .subtab:hover:not(.active) { color: var(--ink); }
 .subtab.active { font-weight: 600; color: var(--ink); background: #fff; box-shadow: 0 1px 2px rgba(16,17,20,.12); }
 .subtab.disabled { color: #c3c6d4; cursor: not-allowed; }
 .subview { display: none; }
 .subview.active { display: block; }
-.coming-soon-note { color: var(--muted); font-size: 12.5px; background: #fff; border: 1px dashed var(--line); border-radius: 12px; padding: 24px; text-align: center; }
+.coming-soon-note { color: var(--muted); font: var(--t-body); background: #fff; border: 1px dashed var(--line); border-radius: 12px; padding: 24px; text-align: center; }
 
-/* ── Sankey — Energy Flows tab ──────────────────────────────────────── */
-.sankey-toolbar { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 8px; flex-wrap: wrap; gap: 10px; }
-.year-tabs { display: flex; gap: 2px; background: #E7EAEC; border-radius: 9px; padding: 3px; }
-.year-btn { border: none; background: transparent; padding: 7px 13px; border-radius: 7px; font-size: 12px; font-weight: 500; color: var(--muted); cursor: pointer; transition: color .15s; }
-.year-btn:hover { color: var(--ink); }
-.year-btn.active { font-weight: 600; color: var(--ink); background: #fff; box-shadow: 0 1px 2px rgba(16,17,20,.12); }
+/* ── Energy Flows — the one view that is not on the page's grid ──────────
+   Everything else here is a section inside .page's inset. This tab breaks
+   out of it entirely: the view cancels the inset on both sides so the Sankey
+   gets the full window width, which for a five-column diagram with ~40 links
+   is legibility rather than styling. .page-grid is already collapsed to one
+   column and the Insights rail hidden for this view (dashboard.js), so
+   nothing is left beside it to align to.
+   Deliberately NOT normalised with the other tabs' spacing: this one is
+   built around one question and is allowed to look like it. */
+.flows-view.active { display: block; margin: 0 calc(-1 * var(--page-x)); }
+
+/* Its own control strip. The year selector, the total-supply readout and the
+   node-colour key are all apparatus for this single diagram, so they share
+   one band instead of being scattered as page furniture — a toolbar above and
+   a legend far below the plot, which is what this was.
+   The dark band is the page's existing vocabulary (masthead and footer are
+   the same #3F4247), reused here to say "this section is its own thing". */
+.flows-strip {
+  display: flex; align-items: center; justify-content: space-between; gap: 18px 24px;
+  flex-wrap: wrap;
+  background: #3F4247; color: #E7E9EB;
+  padding: 9px var(--page-x) 10px;
+  margin-bottom: 6px;
+}
+.flows-strip-main { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.flows-strip-label { font: var(--t-label); font-weight: 500; color: #A9AFB6; }
+/* Year tabs inverted for the dark strip — the light-grey pill group they
+   inherit from the other tabs is invisible on it. */
+.year-tabs { display: flex; gap: 2px; background: rgba(255,255,255,.10); border-radius: 9px; padding: 3px; }
+.year-btn { border: none; background: transparent; padding: 7px 13px; border-radius: 7px; font: var(--t-body); font-weight: 500; color: #C3C7CC; cursor: pointer; transition: color .15s, background .15s; }
+.year-btn:hover { color: #fff; }
+.year-btn.active { font-weight: 600; color: var(--ink); background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); }
 
 /* No overflow:hidden. It was here to clip the Sankey to the card's rounded
    corners; the card has neither a radius nor a background any more, so all it
@@ -486,7 +842,7 @@ a { text-decoration: none; color: inherit; }
    an edge — the tooltip is absolutely positioned inside this element.
    (renderSankey's showTip also clamps the tooltip's own position, so the two
    together keep it whole AND inside the plot.) */
-.sankey-card { position: relative; border-radius: 0; padding: 14px 16px; background: transparent; border: 0; }
+.sankey-card { position: relative; border-radius: 0; padding: 6px var(--page-x) 10px; background: transparent; border: 0; }
 /* The Sankey is the headline view of the whole site, so it gets the space
    rather than being squeezed to keep the control deck above the fold. Sized
    off the viewport, not a magic number: renderSankey() lays out to the
@@ -539,16 +895,20 @@ a { text-decoration: none; color: inherit; }
 .sankey-tooltip {
   position: absolute; pointer-events: none; z-index: 5; opacity: 0; transition: opacity .12s ease;
   background: #fff; color: var(--ink); padding: 9px 12px; border-radius: 8px;
-  font-size: 12px; line-height: 1.5; border: 1px solid var(--line);
+  font: var(--t-label); border: 1px solid var(--line);
   transform: translate(-50%, -120%); white-space: nowrap;
 }
 .sankey-tooltip.show { opacity: 1; }
 /* Flipped under the cursor when there is no room above (showTip decides). */
 .sankey-tooltip.is-below { transform: translate(-50%, 24%); }
 .sankey-tooltip b { color: var(--accent); }
-.sankey-total { font-size: 12px; color: var(--muted); font-weight: 600; background: #fff; border: 1px solid var(--line); padding: 7px 14px; border-radius: 999px; font-family: var(--mono); }
-.sankey-total b { color: var(--ink); }
-.sankey-legend { display: flex; gap: 18px; margin-top: 10px; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+/* Mono, and this is the reference case for that rule: it is a measurement
+   with a unit ("Total primary supply: 2902.5 Mtoe"). On the dark strip it
+   drops the white pill it wore on the white page — it is inside a band now,
+   so it needs no card of its own. */
+.sankey-total { font: var(--t-caption); letter-spacing: .04em; color: #A9AFB6; background: transparent; border: 0; padding: 0; }
+.sankey-total b { color: #fff; }
+.sankey-legend { display: flex; gap: 16px; font: var(--t-label); color: #C3C7CC; flex-wrap: wrap; }
 .sankey-legend span { display: flex; align-items: center; gap: 6px; }
 .sankey-legend i.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 
@@ -563,9 +923,10 @@ a { text-decoration: none; color: inherit; }
   padding: 6px var(--page-x);
   background: #3F4247;
   color: #C3C7CC;
-  font: 500 10.5px/1.4 var(--mono);
+  /* Plain sans: the footer is a copyright line and two download links, not a
+     measurement. It was in the mono purely because everything small was. */
+  font: var(--t-caption); line-height: 1.4; letter-spacing: .06em;
   text-align: center;
-  letter-spacing: .01em;
 }
 .site-footer a { color: #8FC2E8; text-decoration: none; }
 .site-footer a:hover { text-decoration: underline; }
@@ -596,24 +957,28 @@ a { text-decoration: none; color: inherit; }
   display: flex; align-items: center; gap: 12px;
   margin: -12px calc(-1 * var(--page-x)) 10px;
   padding: 7px var(--page-x) 8px;
-  /* Light blue box, green meter — the thing being measured is greenhouse gas.
-     Labels stay DARK on it (13.4:1); white would be unreadable here.
-     Bordered in the tab rule's own denim, which ties the two blue rules on the
-     page together and, more practically, gives the box a real edge: without it
-     the band's top just changed colour against the white page with nothing
-     marking the boundary. Reads 1.71:1 against the box it outlines, 2.32:1
-     against the white above and 1.98:1 against the deck grey below — a
-     definite edge rather than a hard line. #7FA3C4 (1.96 / 2.65 / 2.26) or
-     #6E93B8 (2.38 / 3.22 / 2.75) if it wants more weight.
+  /* Dark navy box, light green meter — see --gauge-box for the measurements
+     that drove going dark. Labels are LIGHT on it now (12.91:1); the dark ink
+     they used to carry was correct for the old light-blue box.
+     Bordered in the tab rule's own denim, which ties the page's two blue
+     rules together and gives the band a real edge. On the dark box that
+     border now reads 7.56:1 (it was 1.71:1 on the light one), so the edge is
+     crisper than before, while still holding against the white page above
+     (2.32:1) and the deck grey below (1.98:1).
      The side borders land on the window edges, since the band is full-bleed —
      the negative side margins cancel the deck's own padding. */
   background: var(--gauge-box);
   border: 1px solid var(--rule-accent);
 }
-.cdh-emissions-label,
+/* The gauge's caption takes the small-caps treatment; its max READOUT does
+   not. See .panel-unit for why a unit symbol is never uppercased. */
+.cdh-emissions-label {
+  font: var(--t-caption); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--gauge-ink); white-space: nowrap; flex: none;
+}
 .cdh-emissions-max {
-  font: 500 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
-  color: var(--deck-ink); white-space: nowrap; flex: none;
+  font: var(--t-caption); letter-spacing: .04em;
+  color: var(--gauge-ink); white-space: nowrap; flex: none;
 }
 /* 15px, not the 7px hairline this started as: the readout sits INSIDE the
    fill, and a 10.5px label in a 7px bar spills its glyphs onto the light
@@ -621,16 +986,15 @@ a { text-decoration: none; color: inherit; }
    taller than its own type. */
 .cdh-emissions-track {
   position: relative; flex: 1 1 auto; height: 15px; min-width: 0;
-  /* The UNFILLED part has to contrast the green fill, or you cannot read how
-     full the bar is — that is the whole point of a meter. A pale track failed
-     exactly there: light green on pale blue measured 1.17:1. This deeper
-     denim gives 2.63:1 against the fill while still reading as a recess in
-     the lighter box around it (1.73:1). */
-  border-radius: 999px; background: #5E82A8;
+  /* The UNFILLED part has to contrast the meter, or you cannot read how full
+     the bar is — that is the whole point of a meter. Against the dark box the
+     same denim now gives 5.07:1 to the meter (it managed 2.63:1 on the old
+     light box) and still reads as a recess within its surround at 1.76:1. */
+  border-radius: 999px; background: var(--gauge-track);
 }
 .cdh-emissions-fill {
   position: absolute; top: 0; bottom: 0; left: 0; width: 0;
-  border-radius: 999px; background: #A5E0A0;
+  border-radius: 999px; background: var(--gauge-meter);
   transition: width .45s cubic-bezier(.16,.84,.44,1);
 }
 /* Rides the end of the fill, the way EU-Calc's own cumulative-emissions bar
@@ -644,38 +1008,36 @@ a { text-decoration: none; color: inherit; }
 .cdh-emissions-value {
   position: absolute; top: 50%; left: 0;
   transform: translate(9px, -50%);
-  font: 700 10.5px/1 var(--head); color: var(--deck-ink); white-space: nowrap;
+  font: var(--t-caption); color: var(--gauge-ink); white-space: nowrap;
   transition: left .45s cubic-bezier(.16,.84,.44,1);
 }
-/* Dark ink in both positions now: inside it sits on the light-green meter
-   (11.9:1) and outside it sits on the deeper denim track (4.5:1). The white
-   it used to use worked on the old blue fill and would fail on green. */
-.cdh-emissions-value.is-inside { transform: translate(calc(-100% - 9px), -50%); }
+/* TWO colours, because the readout lands on two different grounds and the box
+   is dark now: outside the fill it sits on the denim track and takes the same
+   light ink as the labels (8.51:1); tucked inside the fill it sits on the
+   light green meter and has to flip to dark (9.62:1). It was dark in both
+   positions while the box was light blue, which was right then and would be
+   invisible on the track now. */
+.cdh-emissions-value.is-inside {
+  transform: translate(calc(-100% - 9px), -50%);
+  color: #101114;
+}
 .cdh-head { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin-bottom: 9px; flex: none; }
 .cdh-head-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 220px; }
-.cr-title { font-family: var(--head); font-size: 16px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; }
-#status-chip { font: 500 10.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--deck-ink); white-space: nowrap; }
+.cr-title { font: var(--t-section); white-space: nowrap; }
+/* Empty while idle (dashboard.js's setStatus), so the deck head has no
+   placeholder text sitting in it pretending to be a signal — it only appears
+   while a recalculation is actually running, or after one fails. */
+#status-chip { font: var(--t-label); font-weight: 500; color: var(--deck-ink); white-space: nowrap; }
+#status-chip:empty { display: none; }
 #status-chip.recalculating { color: #96650F; }
 #status-chip.error { color: #C0392B; }
 
-/* Predefined scenarios: one merged control — used to be a static Key
-   legend (labels, not clickable) plus a separate bare 1..4 "Example
-   pathway" selector (clickable, no labels) sitting next to it. Each button
-   now carries a level name AND a ramp-color dot (.cdh-pathway-btn-dot,
-   same colors as .lg-lever/LEVEL_FILL), so picking a preset and
-   reading what the levels mean happen in the same control. */
-.cdh-pathway { display: flex; align-items: center; gap: 10px; flex: none; }
-.cdh-pathway-label { font: 500 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--deck-ink); white-space: nowrap; }
-.cdh-pathway-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
-.cdh-pathway-btn {
-  display: flex; align-items: center; gap: 7px;
-  height: 30px; padding: 0 13px; border-radius: 8px; border: 1px solid var(--deck-line); background: var(--deck-panel);
-  color: var(--deck-ink); font: 600 11.5px/1 var(--head); white-space: nowrap; cursor: pointer;
-  transition: background .12s, color .12s, border-color .12s, box-shadow .12s;
-}
-.cdh-pathway-btn-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-.cdh-pathway-btn:hover { border-color: #6B7484; color: #fff; }
-.cdh-pathway-btn.active { background: var(--lvl-3); border-color: var(--lvl-3); color: #fff; box-shadow: 0 1px 3px rgba(35,73,120,.4); }
+/* The predefined-scenario select used to be styled here, as .cdh-pathway* in
+   the deck head. It lives in the tab row's pathway chip now (.pathway-chip-
+   select above) — the chip already reported which pathway was loaded, so a
+   chooser here and a readout there were two controls for one fact. Before
+   that it was four always-visible buttons; the reasoning for collapsing them
+   into one select is recorded on .pathway-chip-select. */
 
 /* Flexbox, not grid: the rail (see .lg-rail-col below) needs to be able to
    sit right next to WHICHEVER lever column was clicked, not always parked
@@ -687,16 +1049,82 @@ a { text-decoration: none; color: inherit; }
    and the layout still reflows correctly. */
 .lever-grid {
   flex: 0 0 auto; display: flex;
-  align-items: flex-start; gap: 9px;
+  /* stretch, so every column is the tallest column's height and the navy
+     rules between them are equal full-height lines (see .lg-col::before).
+     40px of gap, up from 26: the rule sits in the middle of it, and 13px of
+     clear space either side is what stops it reading as an edge belonging to
+     one of the two columns. */
+  align-items: stretch; gap: 40px;
+  /* Columns are their own width and cluster at the left rather than each
+     taking 1/4 of the window. They used to be `flex: 1 1 0`, so the four
+     groups spread across the full page and the gaps between them grew with
+     the monitor — on a wide screen the deck read as four islands with a lot
+     of nothing between them. A control panel wants its controls together;
+     leftover width belongs at the end, not distributed between the groups. */
+  justify-content: flex-start;
 }
-.lg-col { display: flex; flex-direction: column; gap: 9px; min-width: 0; flex: 1 1 0; }
-.lg-col-1 { flex: 1.12 1 0; }
-/* Costs (sidebar.py's DECK_COLUMNS) gets the same flexible share as every
-   other lever column (.lg-col's default) rather than the old Key box's
-   206px fixed width — a lever row needs room for its label AND a 4-button
-   segmented control AND (here, a 4-lever group) an expand chevron, which
-   206px truncates even a five-letter label down to. Key's own content
-   never had that problem since it was just a legend, no controls. */
+
+/* ── The lever region: the levers' "confined space" ──────────────────────────
+   Everything that is a control — the three group columns plus the slide-out
+   rail — lives inside this one flex item, and Insights is the item after it.
+   The point is that this box's width does NOT depend on what the levers are
+   doing: opening a sub-sector's rail redistributes width INSIDE here (the
+   three columns narrow to make room, and widen again on close) instead of
+   shoving the Insights panel sideways by 285px every time someone opens a
+   flyout. Commentary that jumps when you touch a control reads as breakage.
+
+   1464 is not a taste number, it is the open state measured: three columns at
+   their derived 353 (see .lg-col) + two 40px gaps between them + a 40px gap to
+   the rail + the rail's own 285 = 1464. So with a flyout open every column is
+   at exactly the width it was designed around, and with it closed the same
+   1464 is shared by three columns (461 each), the surplus going to the tracks
+   — see .lg-lever-cell. `0 1` so it still compresses rather than overflowing
+   on a narrow window; logical deck width runs ~1790-2700 across 1366→3440. */
+.lg-cols {
+  flex: 0 1 1464px; min-width: 0;
+  display: flex; align-items: stretch; gap: 40px;
+}
+/* Width is derived, not chosen: chevron 15 + gap 10 + title 168 + gap 10 +
+   track 150 = 353. It also has to clear the widest GROUP heading, which is
+   "Supply — Renewable and Clean Energy" — measured at 251px plus its 7px dot
+   and 7px gap = 265, so 353 holds it without wrapping.
+   `1 1 353px`, not `0 1`: the columns share .lg-cols above between them, so
+   they grow past 353 when the rail is shut and fall back to it when the rail
+   takes its 285. 353 stays the basis (and the floor the rail's arithmetic is
+   built on) rather than becoming a fixed size. */
+.lg-col { display: flex; flex-direction: column; gap: 9px; min-width: 0; flex: 1 1 353px; position: relative; }
+
+/* ── Navy rule between sections ──────────────────────────────────────────
+   Drawn as an absolutely-positioned ::before sitting in the gap, NOT as a
+   border-left on the column. A border lives inside the box, so with
+   box-sizing:border-box it would come out of the column's own 353px and put
+   the line hard against this column's first character instead of centred
+   between the two; positioning it in the gap leaves every width derivation
+   above untouched.
+   `align-items: stretch` on .lever-grid (its default, restored from
+   flex-start) makes every column as tall as the tallest, so the rules are
+   equal full-height lines rather than ragged ones ending wherever their own
+   column happens to stop. Column CONTENT still packs to the top, since
+   .lg-col is itself a flex column. */
+/* Faded at both ends rather than a hard full-height line. A rule that stops
+   dead at the top and bottom of the tallest column reads as an edge — it
+   boxes each column in, and it draws a boundary through the empty space below
+   the shorter columns where there is nothing to divide. Fading it out means it
+   is at its most visible exactly where the rows are, and is nothing where the
+   space is: it fills the gap without claiming it. Held at 30% of the navy
+   (~1.76:1 against the band) rather than solid — see --deck-divider. */
+.lg-col + .lg-col:not(.lg-rail-col)::before {
+  content: ""; position: absolute; left: -20px; top: 0; bottom: 0; width: 1px;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    color-mix(in srgb, var(--deck-divider) 30%, transparent) 18%,
+    color-mix(in srgb, var(--deck-divider) 30%, transparent) 76%,
+    transparent 100%);
+}
+/* The flyout rail is injected between columns when a sub-sector opens, so the
+   column that lands after it would otherwise draw its rule inside the rail. */
+.lg-rail-col.is-open + .lg-col::before { display: none; }
 
 /* No card chrome. Each group used to be a white rounded box with a border on
    the grey band; it is now just a heading over a list of rows, sitting
@@ -705,7 +1133,11 @@ a { text-decoration: none; color: inherit; }
    (the Predefined-scenarios buttons and the flyout rail still use it). */
 .lg-box { min-width: 0; background: transparent; border: 0; border-radius: 0; padding: 2px 2px 4px; overflow: visible; }
 .lg-box-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-bottom: 3px; margin-bottom: 2px; }
-.lg-box-title { font: 600 10.5px/1.3 var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--deck-ink); display: flex; align-items: center; gap: 7px; }
+/* A group heading, so plain sans in its own case — "Demand", not "DEMAND" in
+   spaced monospace caps. The uppercase mono treatment here was the same one
+   the KPI captions use, which put a section title and a unit label in the
+   same voice. */
+.lg-box-title { font: var(--t-body); font-weight: 600; color: var(--deck-ink); display: flex; align-items: center; gap: 7px; }
 /* Group accent dot — ties each panel to what it controls: blue = demand,
    green = clean supply, slate = fossil, indigo = network. */
 .lg-box-title::before { content: ""; width: 7px; height: 7px; border-radius: 2px; background: var(--group-accent, var(--muted-2)); flex: none; }
@@ -713,25 +1145,45 @@ a { text-decoration: none; color: inherit; }
 .lg-box-clean   { --group-accent: var(--lvl-4); }
 .lg-box-conv    { --group-accent: var(--lvl-1); }
 .lg-box-network { --group-accent: var(--lvl-2); }
-.lg-box-econ, .lg-box-costs, .lg-box-other { --group-accent: var(--lvl-1); }
-.lg-box-avg { font: 400 10px/1 var(--mono); color: var(--deck-ink); white-space: nowrap; }
+/* .lg-box-econ / .lg-box-costs went with the Economics and Costs groups, which
+   are sub-categories of Other now (levers.py) and so have no panel of their
+   own to accent. */
+.lg-box-other { --group-accent: var(--lvl-1); }
 
 .lg-subcats { display: flex; flex-direction: column; }
 /* Rules between rows removed with the boxes — spacing alone separates them,
    as in the reference sidebar. (Flyout rows keep their own rules: those sit
    on a white panel where a list needs the help.) */
-.lg-subcat-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
-.lg-subcat-title { flex: 1; min-width: 0; font-size: 12.5px; color: var(--deck-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lg-subcat-count { font: 400 10px/1 var(--mono); color: var(--deck-ink); }
+/* 3px, not 5. The lever itself grew 24 -> 28px tall, and at 1366x768 the fit
+   is already pinned to its UI_SCALE_MIN floor of 0.7 — so 4px added per row
+   came straight off the bottom of the window and pushed the footer out of
+   view. Taking it back out of the padding makes the row pitch identical to
+   what it was (24+10 = 28+6 = 34px), so the deck is exactly as tall as
+   before while the control inside it is bigger. */
+.lg-subcat-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+/* A fixed WIDTH, not a fixed share. `flex: 1` was wrong first (the label ate
+   all the slack and pushed its slider to the far right of the column), and
+   `0 0 50%` was still wrong: a share of a column that stretched to a quarter
+   of the window is a share of an arbitrary number, and it measured 272px
+   against a longest real label of 162px — ~110px of dead space on every row.
+   168px is that longest label ("Renewable Generation · 8", measured) plus a
+   little slack, so the tracks sit right after the names and still line up on
+   one x down the column. The one label longer than this — "Hydrogen
+   Production for Telecom and Transport", 301px — was already ellipsised at
+   272; its full text is the first line of the row's hover popup now, which is
+   why it no longer carries a native `title` (that was a second tooltip). */
+.lg-subcat-title { flex: 0 0 168px; min-width: 0; font: var(--t-body); color: var(--deck-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lg-subcat-count { font: var(--t-label); color: var(--muted); }
 /* Draggable lever — a native <input type=range> (drag the thumb, click the
    track, or arrow-key it while focused, all for free) laid transparently
    over a styled track+fill+thumb it actually drives. dashboard.js's
    initLevers reads the level's own ramp colors back out of data-fills
    (LEVEL_FILL, sidebar.py) and repaints the fill/thumb on every input event
    and on every external update (recalc, pathway button, flyout edit).
-   Hovering/focusing shows the CURRENT value's own "Ambition level N: ..."
-   note via .lever-tooltip (dashboard.js) when the lever carries data-descs
-   — sourced from the Control sheet's own columns (see sidebar.py). */
+   Hovering/focusing anywhere on the ROW shows one popup inside the deck band
+   (.lever-tooltip, dashboard.js): for a single lever its Control-sheet note
+   for the level it is on, for a bundled row what that one control does and
+   where it sits. Never both, and never a per-lever list. */
 /* Restyled from a glossy candy slider to a flat, precise one. What made the
    old control read as cheap was not the geometry so much as three effects
    stacked on it: a radial-gradient "bubble" thumb with a specular highlight,
@@ -743,13 +1195,46 @@ a { text-decoration: none; color: inherit; }
    than a solid colour blob: it keeps the ramp legible at 14px, reads as a
    precision control rather than a toy, and holds its edge against both the
    grey deck panel it sits on and the fill running under it. */
-.lg-lever { position: relative; flex: none; width: 92px; height: 22px; --lg-lever-color: var(--lvl-1); }
+/* ── One track geometry for every row ────────────────────────────────────
+   Width was briefly per-row, derived from how many Control-sheet levers the
+   row drives (the comment above sidebar.py's _lever_html has the history). It
+   encoded something true and still read as a mess: twelve tracks of twelve
+   lengths ending on twelve x positions, with nothing to scan down.
+   Now one width, set HERE and nowhere else, and — with .lg-subcat-title at a
+   fixed width and the chevron slot always reserved — every track in a column
+   starts AND ends on the same two x positions. What still differs between rows is only what
+   the model itself differs on: how many ticks (a row capped at 3 has three
+   snap points, one that reaches 5 has five) and where the handle sits. */
+/* 150px, up from 132: the track is the control, and at the old width it read
+   as a hairline detail beside its label rather than as the thing you drag.
+   `0 1 150px` rather than `none` so it compresses with the column instead of
+   forcing an overflow; the ticks and thumb are absolutely positioned in
+   percentages, so a narrower track stays correct. */
+.lg-lever-cell {
+  flex: 0 1 150px; width: 150px; min-width: 96px;
+}
+/* In the deck (not the rail), the track is what absorbs a column's surplus.
+   The column is elastic now — 353 with a flyout open, ~461 with it shut (see
+   .lg-cols) — and the rest of the row is fixed: chevron 15, title 168, two
+   10px gaps. If the track stayed at 150 that surplus would land as dead space
+   at the right-hand end of every row, so the tracks would stop short of their
+   own column and the deck would look ragged down its right edge. Growing the
+   track instead spends it on the control itself, and since every column in the
+   region is the same width every track still starts and ends on the same two x
+   positions — the property .lg-lever-cell's fixed width was there to protect.
+   Capped at 260 so a very wide window can't turn a 5-step lever into a ruler.
+   Flyout rows are excluded: they live in the rail's fixed 285px, where the
+   growth would come straight out of the lever name beside the track. */
+.lg-subcat-row:not(.lg-flyout-row) > .lg-lever-cell {
+  flex: 1 1 150px; width: auto; max-width: 260px;
+}
+.lg-lever { position: relative; width: 100%; height: 28px; --lg-lever-color: var(--lvl-1); }
 .lg-lever-track {
-  position: absolute; left: 0; right: 0; top: 50%; height: 4px; transform: translateY(-50%);
-  /* A touch darker than --deck-line now. The track used to sit on a white box
-     inside the band; with the boxes gone it sits on the band itself (#EDEDED),
-     where a #D4D4D4 track was too faint to read as a track. This value holds
-     up both there and on white in the flyout rail. */
+  position: absolute; left: 0; right: 0; top: 50%; height: 7px; transform: translateY(-50%);
+  /* A touch darker than --deck-line. The track used to sit on a white box
+     inside the band; with the boxes gone it sits on the band itself
+     (#EDEDED), where a #D4D4D4 track was too faint to read as a track. This
+     value holds up both there and on white in the flyout rail. */
   border-radius: 999px; background: #C9C9C9;
   box-shadow: inset 0 0 0 1px rgba(16,17,20,.05);
 }
@@ -758,15 +1243,30 @@ a { text-decoration: none; color: inherit; }
   background: var(--lg-lever-color); width: 0%;
   transition: width .16s ease, background-color .16s ease;
 }
+/* The spread band: the real low-to-high extent of a bundled row's levers
+   when they are NOT all on one level (paintLever draws it, updateLeverRow
+   decides). This is what a single averaged handle was hiding — Buildings on
+   the heroic pathway is five levers at 4 and one capped at 3, and the row
+   was reporting a tidy single position for a state that has none.
+   Drawn taller than the track and semi-transparent in the level's own colour
+   so it reads as "anywhere in here", not as a second fill. */
+.lg-lever-band {
+  display: none;
+  position: absolute; top: 50%; height: 14px; transform: translateY(-50%);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--lg-lever-color) 26%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lg-lever-color) 45%, transparent);
+  pointer-events: none;
+}
 /* Ticks sit on the unfilled track only in effect — the fill runs over them —
    so they read as remaining stops rather than decoration. */
 .lg-lever-tick {
-  position: absolute; top: 50%; width: 2px; height: 2px; margin-left: -1px;
-  border-radius: 50%; background: rgba(16,17,20,.26); transform: translateY(-50%);
+  position: absolute; top: 50%; width: 4px; height: 4px; margin-left: -2px;
+  border-radius: 50%; background: rgba(16,17,20,.3); transform: translateY(-50%);
   pointer-events: none;
 }
 .lg-lever-thumb {
-  position: absolute; top: 50%; left: 0%; width: 14px; height: 14px; margin-left: -7px;
+  position: absolute; top: 50%; left: 0%; width: 20px; height: 20px; margin-left: -10px;
   border-radius: 50%;
   background: #fff;
   box-shadow:
@@ -794,11 +1294,13 @@ a { text-decoration: none; color: inherit; }
 /* Mixed (a bundled row whose levers genuinely disagree — see
    updateLeverRow): a hollow thumb, i.e. the ring without a settled centre,
    rather than the old triple-ring halo. */
-/* --surface-2, not --deck-bg or --deck-panel: both of those are white now, so
-   filling the thumb with either made "mixed" identical to the ordinary white
-   thumb. This has needed re-pointing every time the deck surfaces changed —
-   what it actually wants is "a tint that is clearly not white", which is what
-   --surface-2 is for. */
+/* --surface-2, not --deck-bg or --deck-panel: both of those are white or
+   near-white, so filling the thumb with either made "mixed" identical to the
+   ordinary white thumb. This has needed re-pointing every time the deck
+   surfaces changed — what it wants is "a tint that is clearly not white".
+   Worth knowing: --surface-2 only measures 1.11:1 against the white thumb, so
+   this state is subtle. It reads because the ring thins at the same time, not
+   because of the fill alone. */
 .lg-lever.is-mixed .lg-lever-thumb {
   background: var(--surface-2);
   box-shadow:
@@ -810,23 +1312,60 @@ a { text-decoration: none; color: inherit; }
   position: absolute; inset: 0; margin: 0; width: 100%; height: 100%;
   appearance: none; -webkit-appearance: none; background: transparent; cursor: pointer;
 }
-.lg-lever-input::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; opacity: 0; }
-.lg-lever-input::-moz-range-thumb { width: 16px; height: 16px; opacity: 0; border: 0; }
+/* The invisible native thumb has to match the visible one's size, or the hit
+   area and the mark you are aiming at stop agreeing. */
+.lg-lever-input::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 20px; height: 20px; opacity: 0; }
+.lg-lever-input::-moz-range-thumb { width: 20px; height: 20px; opacity: 0; border: 0; }
 .lg-lever-input::-moz-range-track { background: transparent; }
 .lg-lever:focus-within .lg-lever-track { outline: 2px solid #7FB0DA; outline-offset: 3px; }
 
 /* One shared floating box (dashboard.js's initLeverTooltip), positioned
-   above whichever dot is hovered/focused — same position:fixed + measured-
-   rect technique the Sankey's own tooltip uses. */
+   against whichever row is hovered/focused and CLAMPED INSIDE the Custom
+   Pathways band — same position:fixed + measured-rect technique the Sankey's
+   own tooltip uses, with the band rather than the window as the bounds.
+   It describes a control, and every control is in that band; the version that
+   clamped to the viewport put a tall popup at the top-left of the page, over
+   the charts, next to nothing it was describing.
+
+   280px, back down from 320: the box is now four short lines at most (name,
+   state, and either an ambition note or the group's two-line explanation),
+   not the per-lever LIST it used to be. The height cap is what keeps it a
+   popup — a plain px value, never one derived from --ui-scale or the
+   viewport, for the reason recorded above .lg-insights-col. It is a ceiling
+   for a pathological note, not the normal case: the longest note in the
+   workbook renders at ~150px here. */
 .lever-tooltip {
-  position: fixed; z-index: 70; max-width: 280px;
+  position: fixed; z-index: 70; max-width: 280px; max-height: 190px; overflow-y: auto;
   background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: 10px;
   box-shadow: 0 10px 28px rgba(16,17,20,.2);
-  padding: 10px 13px; font-size: 12px; line-height: 1.5;
+  padding: 10px 13px; font: var(--t-body);
   pointer-events: none;
 }
 .lever-tooltip[hidden] { display: none; }
-.lever-tooltip strong { font-weight: 700; }
+/* The row's own name — the popup's title, and the only place a truncated
+   label ("Growth of fl…") can be read in full. */
+.lever-tip-head {
+  font: var(--t-body); font-weight: 600; color: var(--ink);
+  padding-bottom: 6px; margin-bottom: 7px;
+  border-bottom: 1px solid var(--line);
+}
+/* Where the control sits right now: "Level 3 of 4" for one lever, or the
+   bundled row's own state sentence from updateLeverRow() — which is three
+   different sentences, because a saturated row and a row that is genuinely
+   out of step are not the same thing. Accent-tinted so the value reads apart
+   from the prose under it. */
+.lever-tip-state {
+  font: var(--t-caption); color: var(--accent);
+  background: rgba(41,105,154,.10); border-radius: 5px; padding: 3px 7px;
+  display: inline-block;
+}
+/* The Control sheet's ambition note for that level (single levers only). */
+.lever-tip-note { font: var(--t-label); color: var(--muted); margin-top: 7px; }
+/* A bundled row's two lines: what the control does, then where the detail is.
+   The hint is quieter than the explanation above it — it is an instruction
+   about the interface, not a fact about the model. */
+.lever-tip-sub { font: var(--t-label); color: var(--muted); margin-top: 7px; }
+.lever-tip-hint { font: var(--t-label); color: var(--muted-2); margin-top: 4px; }
 
 /* A multi-lever row's LABEL is a click target for its flyout too, not just the
    chevron — reaching for a 15px chevron to see what a row bundles was the only
@@ -839,6 +1378,10 @@ a { text-decoration: none; color: inherit; }
 .lg-subcat-row.is-expandable .lg-subcat-title:hover { color: var(--accent); }
 .lg-subcat-row.is-expandable:hover .lg-expand-btn { color: var(--deck-ink); }
 
+/* Holds the chevron's place on rows that have no flyout to open (single-lever
+   sub-sectors), so their label — and the slider that begins where the label
+   ends — starts on the same x as every expandable row's. */
+.lg-expand-spacer { flex: none; width: 15px; height: 15px; }
 /* Chevron: opens the individual-lever flyout for a multi-lever sub-sector row. */
 .lg-expand-btn {
   flex: none; display: flex; align-items: center; justify-content: center;
@@ -873,9 +1416,12 @@ a { text-decoration: none; color: inherit; }
      shoved. */
   transition: flex-basis .34s cubic-bezier(.16,.84,.44,1);
 }
-.lg-rail-col.is-open { flex-basis: 260px; }
+/* 285, up from 260, to pay for the wider track: a flyout row is name + track
+   in this width, so growing the track by 18px would otherwise come straight
+   out of the lever name beside it. */
+.lg-rail-col.is-open { flex-basis: 285px; }
 .lg-rail {
-  height: 100%; min-width: 250px; box-sizing: border-box;
+  height: 100%; min-width: 275px; box-sizing: border-box;
   /* No card chrome, matching the group lists beside it. This is a real 5th
      column of the lever grid rather than an overlay, so with the white card
      gone it simply reads as one more column on the band. */
@@ -911,18 +1457,18 @@ a { text-decoration: none; color: inherit; }
 }
 .lg-flyout-head {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  font: 600 11px/1.3 var(--mono); letter-spacing: .05em; text-transform: uppercase;
+  font: var(--t-body); font-weight: 600;
   color: var(--deck-ink); padding: 7px 0 6px; margin-bottom: 2px;
 }
 .lg-flyout-close {
-  border: 0; background: transparent; font-size: 16px; line-height: 1; cursor: pointer;
+  border: 0; background: transparent; font: var(--t-chart); cursor: pointer;
   color: var(--deck-ink); padding: 0 2px;
 }
 .lg-flyout-close:hover { color: var(--ink); }
 /* Rules gone here too — the flyout no longer sits on a white panel where a
    list needed the help, it sits on the band with everything else. */
 .lg-flyout-row { padding: 6px 0; gap: 10px; }
-.lg-flyout-name { flex: 1; min-width: 0; font-size: 12px; color: var(--deck-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lg-flyout-name { flex: 1; min-width: 0; font: var(--t-body); color: var(--deck-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 
 /* Anyone who has asked their OS for less motion gets the same layout with the

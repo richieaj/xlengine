@@ -15,9 +15,10 @@ in dashboard.css above `.pathway-rail`.
 Each sub-sector in the deck is one flat row (name + 1..4 buttons); a row
 bundling more than one real lever also gets a chevron that opens that group's
 individual levers (rendered once via __LEVER_FLYOUTS_HTML__, one block per
-multi-lever sub-sector) inside the deck's own slide-out rail — a 5th
-lever-grid column that animates from 0 width, so the three lever columns
-visibly make room for it rather than it floating over the charts above.
+multi-lever sub-sector) inside the deck's own slide-out rail — a further
+column that animates from 0 width inside the fixed-width lever region
+(.lg-cols), so the three lever columns visibly make room for it rather than
+it floating over the charts above or shunting Insights sideways.
 (Unrelated to the page-level "rail" above other than sharing the name.)
 
 The rail's Insights block is persistent across every tab and permanently
@@ -40,17 +41,20 @@ def render_base():
 <head>
 <meta charset="utf-8">
 <title>IESS 2047 — India Energy Security Scenarios</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
-<!-- Ranade (Fontshare / Indian Type Foundry) is the display and body face.
-     Space Grotesk and IBM Plex Sans stay in the stacks behind it as fallbacks
-     rather than being removed: Fontshare is a second CDN to depend on, and if
-     it is unreachable the UI should fall back to the faces it was tuned with
-     instead of to a system default. IBM Plex Mono keeps every mono role —
-     Ranade has no monospace cut, and the deck's small-caps labels and figures
-     rely on fixed advance widths. -->
-<link href="https://api.fontshare.com/v2/css?f%5B%5D=ranade@400,500,700&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- The font is self-hosted (ui/static/fonts, built by tools/build_fonts.py)
+     and declared in dashboard.css. There is deliberately no font CDN here:
+     this site sits next to a .gov.in domain, and the two <link>s that used to
+     occupy these lines put Fontshare and Google Fonts in the critical render
+     path of every page load and handed both a request from every visitor.
+
+     ONE subsetted variable woff2, 42.7 KB, from our own origin — it replaced
+     six static files totalling 102 KB when the interface went to Roboto for
+     every role. One file also means the preload question disappears: there is
+     no longer a judgement call about which faces draw first-paint text, and
+     no second preload competing with the first.
+     `crossorigin` is required even same-origin: font fetches are CORS-mode,
+     and without it the preload is discarded and fetched a second time. -->
+<link rel="preload" href="/static/fonts/roboto-var.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/css/dashboard.css">
 </head>
 <body>
@@ -106,11 +110,33 @@ def render_base():
     <div class="page-main">
       <div class="tab-row">
         <div class="pill-tabs">__TABS_HTML__</div>
-        <span class="pathway-chip" data-level="1" title="The pathway currently loaded across every lever">
+        <!-- Pathway: one control, both readout and chooser.
+             The predefined-scenario <select> used to live in the Custom
+             Pathways head while this chip sat here naming the loaded pathway
+             — two controls for one fact, in two places, and dashboard.js was
+             already writing the same answer into both (updatePathwayName set
+             the chip's text AND the select's value). Merging them removes the
+             redundancy and puts the choice where the reader looks for the
+             current state.
+             A native <select>, deliberately: the four presets are mutually
+             exclusive states of one thing, it gets the platform's own
+             keyboard/touch behaviour for free, and it can display the "Custom
+             pathway" state without inventing anything. That option is
+             disabled because it is a state you reach by moving a lever, not
+             one you can pick. The dot keeps the effort level readable as
+             colour, on the same ramp as the levers themselves. -->
+        <div class="pathway-chip" data-level="1">
           <span class="pathway-chip-dot" aria-hidden="true"></span>
-          <span class="pathway-chip-label">Pathway</span>
-          <span class="pathway-chip-value" id="pathway-name">Custom pathway</span>
-        </span>
+          <label class="pathway-chip-label" for="scenario-select">Pathway</label>
+          <select class="pathway-chip-select" id="scenario-select"
+                  title="The pathway currently loaded across every lever. Moving any lever puts it into Custom pathway.">
+            <option value="1">Least effort</option>
+            <option value="2">Determined effort</option>
+            <option value="3">Aggressive effort</option>
+            <option value="4">Heroic effort</option>
+            <option value="" disabled>Custom pathway</option>
+          </select>
+        </div>
       </div>
 
       <div class="main-col">
@@ -119,30 +145,8 @@ def render_base():
       </div>
     </div>
 
-    <!-- Insights card, right-hand column: sticky within the viewport, own
-         internal scroll if its content outgrows it. Second in the DOM as well
-         as second in the grid, so it reads after the charts it comments on
-         rather than ahead of them. Hidden on Energy Flows only (dashboard.js
-         also collapses .page-grid's own column for it via .rail-hidden).
-         Insights only — no separate Pathway Impact block; renderInsights()
-         (dashboard.js) already covers the same underlying lever/KPI data in
-         prose form. -->
-    <aside class="pathway-rail" id="pathway-rail" aria-label="Insights">
-      <div class="rail-insights">
-        <div class="rail-insights-head">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.6.6 1 1.5 1 2.5h6c0-1 .4-1.9 1-2.5A6 6 0 0 0 12 3Z"/>
-          </svg>
-          Insights
-        </div>
-        <div class="rail-insights-body" id="insights-panel-body"></div>
-      </div>
-    </aside>
   </div>
 
-  <!-- Full-width again, outside .page-grid: the rail (Insights) only ever
-       covers the tab row + KPI cards + charts above, so it ends where they
-       end instead of running down alongside this too. -->
   <section class="control-deck-h">
     <!-- The deck's top edge used to be a purely decorative 2px gradient rule
          (.control-deck-h::before). It is a real gauge now: the pathway's own
@@ -159,46 +163,70 @@ def render_base():
         <div class="cdh-emissions-fill" id="cdh-emissions-fill"></div>
         <span class="cdh-emissions-value" id="cdh-emissions-value">&mdash;</span>
       </div>
-      <span class="cdh-emissions-max">10 GtCO&#8322;</span>
+      <span class="cdh-emissions-max">10 GtCO<sub>2</sub></span>
     </div>
     <div class="cdh-head">
+      <!-- Title only. A one-line note explaining the sliders' endpoints used
+           to sit under this; it went with the variable track widths it was
+           half there to explain. The ends are legible from the control itself
+           (level 1 at rest, ticks to the ceiling) and each row's own title
+           attribute states its range in words. -->
       <div class="cdh-head-text">
         <span class="cr-title">Custom Pathways</span>
       </div>
-      <span id="status-chip">live</span>
-      <!-- Predefined scenarios: one merged, all-clickable control — used to
-           be a static Key legend (labels, no click) plus a separate bare
-           1..4 "Example pathway" selector (click, no labels). Each button
-           now carries both: the level's own name as its label (setScenario
-           in dashboard.js reads data-level, unchanged) and a small dot in
-           that level's ramp color (the same colors .lg-lever/LEVEL_FILL
-           use), so there's one place to both see what each level means and
-           pick one. -->
-      <div class="cdh-pathway">
-        <span class="cdh-pathway-label">Predefined scenarios</span>
-        <div class="cdh-pathway-buttons" id="scenario">
-          <button type="button" class="cdh-pathway-btn active" data-level="1">
-            <span class="cdh-pathway-btn-dot" style="background:var(--lvl-1)"></span>Least effort
-          </button>
-          <button type="button" class="cdh-pathway-btn" data-level="2">
-            <span class="cdh-pathway-btn-dot" style="background:var(--lvl-2)"></span>Determined effort
-          </button>
-          <button type="button" class="cdh-pathway-btn" data-level="3">
-            <span class="cdh-pathway-btn-dot" style="background:var(--lvl-3)"></span>Aggressive effort
-          </button>
-          <button type="button" class="cdh-pathway-btn" data-level="4">
-            <span class="cdh-pathway-btn-dot" style="background:var(--lvl-4)"></span>Heroic effort
-          </button>
-        </div>
-      </div>
+      <!-- Empty until there is something true to report. It used to render
+           "live" and then tick "live · 7:09:17 PM" once a second — a wall
+           clock beside a projection that ends in 2047, which read as
+           telemetry from a running system and was really the timestamp of the
+           last fetch. dashboard.js's setStatus now only fills it while a
+           recalculation is in flight, or when one failed; it is
+           display:none while empty. -->
+      <span id="status-chip"></span>
+      <!-- The "Predefined scenarios" select lived here. It is the pathway
+           chip beside the tabs now (see .pathway-chip in the tab row): that
+           chip already named the loaded pathway, so a chooser here and a
+           readout there were two controls reporting one fact. This head is
+           the section title and the status chip. -->
     </div>
     <!-- Costs now renders as its own column here (see sidebar.py's
          DECK_COLUMNS), in the slot the Key box used to occupy. -->
     <div class="lever-grid" id="lever-grid">
-      __SIDEBAR_HTML__
-      <div class="lg-col lg-rail-col" id="lg-rail-col">
-        <div class="lg-rail" id="lg-rail">__LEVER_FLYOUTS_HTML__</div>
+      <!-- The lever region. Wrapping the columns and the rail in one box is
+           what lets the levers "shrink and expand within their confined
+           space": this box is a fixed width, so opening a sub-sector's rail
+           narrows the three columns rather than displacing everything to its
+           right. See .lg-cols in dashboard.css for the arithmetic. -->
+      <div class="lg-cols" id="lg-cols">
+        __SIDEBAR_HTML__
+        <div class="lg-col lg-rail-col" id="lg-rail-col">
+          <div class="lg-rail" id="lg-rail">__LEVER_FLYOUTS_HTML__</div>
+        </div>
       </div>
+      <!-- Insights, as the deck's right-hand column.
+           It was a card in a second column of .page-grid, beside the charts.
+           Two things were wrong with that: it squeezed every chart on every
+           tab by ~270px of width for a panel holding three or four short
+           lines, and the deck below already had that much unused space to the
+           right of its lever columns — those are their own width and cluster
+           left, so the band simply ran out of content.
+           Moving it here fills that gap and gives the charts the whole page.
+           It also belongs here by subject: it reports what the levers did, and
+           the levers are in this band. It sits directly against the lever
+           region rather than being flung to the window's right edge (the
+           history is on .lg-insights-col), and carries the same navy rule the
+           lever columns use between them, so the segregation reads the same
+           way. -->
+      <aside class="lg-insights-col" id="pathway-rail" aria-label="Insights">
+        <div class="rail-insights">
+          <div class="rail-insights-head">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.6.6 1 1.5 1 2.5h6c0-1 .4-1.9 1-2.5A6 6 0 0 0 12 3Z"/>
+            </svg>
+            Insights
+          </div>
+          <div class="rail-insights-body" id="insights-panel-body"></div>
+        </div>
+      </aside>
     </div>
   </section>
 

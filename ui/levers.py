@@ -4,13 +4,20 @@
 # design; those loose mockup files have since been deleted (the live UI has
 # diverged from them anyway) and survive only inside
 # ../Organic dashboard mockups.zip if the provenance is ever needed.
-# Economics and Costs weren't in that mockup at all (it showed 4 groups);
-# they're kept as their own groups, appended after, so no lever loses
-# coverage. Panel titles shown to users live in pages/sidebar.py's
+# Economics and Costs weren't in that mockup at all (it showed 4 groups), so
+# they were kept as two more top-level groups. They are now sub-categories of
+# "Other" instead: each was a whole panel — its own heading, its own accent
+# dot — standing over a single row, so the deck carried three headings
+# ("Other", "Costs", "Economy") for what is three rows of the same kind of
+# thing: the levers that are not demand, not supply and not network. One
+# heading over three rows says the same thing with a third of the chrome.
+# Panel titles shown to users live in pages/sidebar.py's
 # GROUP_DISPLAY_NAMES, not here.
 CATEGORY_RANGES = [
-    ("Economics",                    range(31, 32),                              "Economics"),
-    ("Costs",                        range(59, 63),                              "Costs"),
+    # Order within a group follows this list; "Other" also takes the
+    # unclassified leftovers, inserted ahead of these two (see load_levers).
+    ("Costs",                        range(59, 63),                              "Other"),
+    ("Economics",                    range(31, 32),                              "Other"),
     ("Demand — Transport",           range(33, 40),                              "Demand side"),
     ("Demand — Buildings",           range(40, 46),                              "Demand side"),
     ("Demand — Industry",            range(46, 50),                              "Demand side"),
@@ -24,7 +31,7 @@ CATEGORY_RANGES = [
 ]
 
 SIDEBAR_GROUP_ORDER = ["Demand side", "Clean build-out", "Conventional supply",
-                       "Network and systems", "Economics", "Costs"]
+                       "Network and systems"]
 
 
 def load_levers(eng):
@@ -77,7 +84,11 @@ def load_levers(eng):
         if r in names and r not in seen_rows
     ]
     if leftovers:
-        by_group["Other"].append({"category": "Other", "levers": leftovers})
+        # Ahead of Costs/Economics, not after them. "Other" now holds both the
+        # genuinely unclassified rows AND the two small named groups folded
+        # into it, and the unclassified ones are what the group is actually
+        # named for — so they read first, with the named sub-categories under.
+        by_group["Other"].insert(0, {"category": "Other", "levers": leftovers})
 
     sidebar_groups = []
     for g in SIDEBAR_GROUP_ORDER + ["Other"]:

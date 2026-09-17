@@ -1,21 +1,76 @@
 const ids = window.APP_CONFIG.leverIds;
-// Positional fallback for any series SERIES_COLOR doesn't name — same EU-Calc
-// register as SERIES_COLOR itself, and ordered so consecutive positions are
-// far apart in luminance (an unnamed series most often lands next to another
-// unnamed one). These were left on the previous palette's hexes when
-// SERIES_COLOR was restyled, which would have mixed two registers on any
-// chart carrying a series the map doesn't list.
+/* ── Chart series palette: the Sankey's own register ──────────────────────
+   The charts used to carry a separate EU-Calc-sampled palette while the
+   Energy Flows Sankey used its own five category colours — two palettes for
+   one dataset. The charts now take the Sankey's, so a colour means the same
+   thing wherever the reader meets it.
+
+   The five anchors are SANKEY_NODE_COLORS verbatim (see renderSankey):
+
+     #22D3A8 source   #4F9BF2 tech   #F2B84B carrier
+     #E05263 loss     #7B6EF6 demand
+
+   THE PROBLEM, and it is a real one: five colours cannot dress fourteen
+   stacked bands, and the Sankey's register is a deliberately tight lightness
+   band — vivid, all mid-luminance. Adjacent bands on a stacked chart have to
+   be separable, including in greyscale and under colour-vision deficiency,
+   which is a LUMINANCE property, not a hue one. Measured on the Sankey's raw
+   colours: its loss red (L=0.228) and its demand violet (L=0.220) are 0.008
+   apart. Fine in the diagram, where the two never touch — they sit in
+   different columns — but on the Energy Demand chart Agriculture and Telecom
+   would have been indistinguishable bands.
+
+   SO THE LIGHTNESS IS SOLVED, NOT PICKED. Hue and saturation are held at the
+   Sankey's values; only lightness moves, and only within ±0.08, by coordinate
+   ascent over the 91 colour pairs that actually co-occur on some chart
+   (checked against every chart's real series list, not a guess), maximising
+   the SMALLEST luminance gap among them. Result: **0.040**, with the binding
+   pair CCS vs Distributed Solar PV on the 13- and 14-series capacity/cost
+   charts. Per chart: demand 0.046, supply 0.044, electricity supply 0.044,
+   land use 0.044, the four-series import charts 0.143.
+
+   Two honest notes on that number:
+     - It is BELOW the 0.053 the previous EU-Calc palette reached. That is the
+       price of this register, not a mistake: releasing lightness to ±0.25
+       does reach 0.057, but it turns the carrier amber into a pale cream and
+       the tech blue into a wash — the anchors stop being the Sankey's. ±0.08
+       keeps every colour recognisably itself (amber #F2B84B→#F4C56C, loss red
+       #E05263→#DD4153) and leans on hue for the rest.
+     - Unconstrained optimisation reaches 0.052 but produces a brown amber
+       (#8F610A) and a near-white cyan. Do not "improve" the gap by rerunning
+       without the leash.
+
+   Assignment keeps the fuel conventions an energy reader expects: coal
+   darkest, oil amber, gas red, nuclear violet, hydro blue, bio/other green,
+   solar yellow, wind teal. `ink` is pinned dark rather than solved, so coal
+   stays the heaviest band. Coal is the one departure from the Sankey itself,
+   which has no near-black — a heavy band there is both conventional and
+   semantically right, and nothing in the diagram needs that slot. */
+const PALETTE = {
+  yellow:   "#F9E48B",  // L .775
+  ltteal:   "#81E4C9",  // L .644
+  amber:    "#F4C56C",  // L .602  <- Sankey carrier #F2B84B
+  teal:     "#28DCB0",  // L .548  <- Sankey source  #22D3A8
+  lime:     "#79CE3B",  // L .485
+  cyan:     "#36C1DD",  // L .441
+  blue:     "#6CABF4",  // L .388  <- Sankey tech    #4F9BF2
+  slate:    "#949FAD",  // L .341
+  pink:     "#EC6A90",  // L .302
+  ltviolet: "#8B78F7",  // L .256
+  red:      "#DD4153",  // L .198  <- Sankey loss    #E05263
+  violet:   "#6252F4",  // L .152  <- Sankey demand  #7B6EF6
+  dpblue:   "#275E9B",  // L .108
+  ink:      "#2B3038",  // L .029  (pinned: coal stays the heaviest band)
+};
+
+// Positional fallback for any series SERIES_COLOR doesn't name. Fourteen
+// entries, so the widest charts (capex/opex, 14 series) can no longer wrap and
+// repeat a colour, and ordered so consecutive positions are far apart in
+// luminance — an unnamed series most often lands next to another unnamed one.
 const COLORS = [
-  "#A5E0A0", // green      (EUCALC)
-  "#EC6E85", // rose       (EUCALC)
-  "#9FC5EE", // blue       (EUCALC)
-  "#F5A623", // orange     (EUCALC)
-  "#8B7FD4", // violet     (EUCALC)
-  "#F7E48F", // yellow
-  "#5CB8AB", // teal
-  "#A8E6EC", // cyan
-  "#D5DAE0", // light grey
-  "#3C3C3C", // near-black (EUCALC)
+  PALETTE.teal, PALETTE.red, PALETTE.blue, PALETTE.amber, PALETTE.violet,
+  PALETTE.lime, PALETTE.cyan, PALETTE.yellow, PALETTE.dpblue, PALETTE.pink,
+  PALETTE.ltteal, PALETTE.ltviolet, PALETTE.slate, PALETTE.ink,
 ];
 
 // The same category keeps the same colour on every chart and every tab, so a
@@ -24,77 +79,74 @@ const COLORS = [
 // outputs.py's DEMAND_SECTOR_GROUPS / SUPPLY_SOURCE_GROUPS etc. Anything not
 // listed falls back to COLORS by position, so a new series still gets a
 // palette colour rather than an off-palette one.
-/* Series palette, in the EU-Calc register (the reference tool this project is
-   modelled on) — its own sampled colours are the anchors, marked (EUCALC)
-   below:
-
-     #A5E0A0 green   #EC6E85 rose   #9FC5EE blue
-     #8B7FD4 violet  #F5A623 orange #3C3C3C near-black
-
-   Six colours can't dress 9+ stacked supply series, so the rest are
-   extensions built in the same register (same lightness band, comparable
-   saturation) rather than borrowed from elsewhere: a yellow, a teal, a cyan,
-   a light violet and two greys.
-
-   Assignment keeps the fuel conventions an energy reader expects, which the
-   EU-Calc anchors mostly allow anyway: coal darkest, oil orange, gas red,
-   nuclear violet, hydro blue, bio/other green, solar yellow, wind teal.
-
-   The extension values are not eyeballed. EU-Calc's register is a tight
-   lightness band, so a first pass at these clustered badly — five pairs of
-   series that share a chart landed within 0.03 relative luminance of each
-   other, i.e. indistinguishable in greyscale or to some colour-vision
-   deficiencies, and worse than the palette this replaced. They were solved
-   instead, by searching candidates for the arrangement that maximises the
-   SMALLEST luminance gap between any two series drawn on the same chart:
-   0.053, up from 0.023 in the old palette. The binding pair is now
-   Agriculture/Natural gas (rose) against Telecom/Nuclear (violet) — both
-   EU-Calc anchors, so that is the floor without abandoning them. Hue and the
-   per-series marker shapes (SERIES_SHAPE) carry the rest of the distinction.
-
-   ONE deliberate departure from EU-Calc's own assignment: they paint
-   Transport near-black, but Transport is a thin sliver in their chart and the
-   single largest band in our Energy Demand chart — a near-black block over a
-   third of the plot reads as a hole in it. Transport takes the teal
-   extension; near-black goes to Coal, where a heavy band is both
-   conventional and semantically right. */
+//
+// Two names may share a colour ONLY if they never appear on one chart — e.g.
+// "Waste to Electricity" (capacity) and "Standalone PV for Hydrogen" (capex).
+// The co-occurrence check above is what licenses that.
 const SERIES_COLOR = {
-  // demand sectors
-  "Buildings": "#9FC5EE",                 // (EUCALC) their "Indirect" blue
-  "Residential Buildings": "#9FC5EE",
-  "Commercial Buildings": "#C4DCF5",
-  "Industry": "#A5E0A0",                  // (EUCALC) their "Industry" green
-  "Heavy Industry": "#A5E0A0",
-  "Transport": "#5CB8AB",                 // extension: teal — see note above
-  "Passenger Transport": "#5CB8AB",
-  "Freight Transport": "#8ED2C7",
-  "Telecom, Cooking & Transport": "#5CB8AB",
-  "Agriculture": "#EC6E85",               // (EUCALC) their "Other" rose
-  "Telecom": "#8B7FD4",                   // (EUCALC) their "Energy" violet
-  "Cooking": "#F5A623",                   // (EUCALC) their "Electronics" orange
-  "Miscellaneous": "#D5DAE0",             // extension: grey
-  "Non-energy use": "#E6E9EC",            // extension: lighter grey
-  // supply sources
-  "Solar": "#F7E48F",                     // extension: yellow (EU-Calc has none)
-  "Solar PV": "#F7E48F",
-  "Wind": "#5CB8AB",                      // extension: teal
-  "Hydro": "#9FC5EE",                     // (EUCALC) blue
-  "Small Hydro": "#C4DCF5",
-  "Nuclear": "#8B7FD4",                   // (EUCALC) violet
-  "Others": "#A5E0A0",                    // (EUCALC) green
-  "Bioenergy": "#A5E0A0",
-  "Biomass": "#A5E0A0",
-  "Coal": "#3C3C3C",                      // (EUCALC) near-black — heaviest band
-  "Oil and petroleum products": "#F5A623",// (EUCALC) orange
-  "Oil": "#F5A623",
-  "Natural gas": "#EC6E85",               // (EUCALC) rose
-  "Gas": "#EC6E85",
-  "Electricity Import": "#A8E6EC",        // extension: cyan
-  "Electricity Imports": "#A8E6EC",
-  "Electricity trade": "#A8E6EC",
-  "Electricity": "#A79BE0",               // extension: light violet
-  "CCS": "#D5DAE0",
-  // aggregate line
+  // ── demand sectors ────────────────────────────────────────────────────
+  "Transport": PALETTE.teal,              // Sankey source teal
+  "Passenger Transport": PALETTE.teal,
+  "Freight Transport": PALETTE.ltteal,
+  "Telecom, Cooking & Transport": PALETTE.teal,
+  "Industry": PALETTE.blue,               // Sankey tech blue
+  "Heavy Industry": PALETTE.blue,
+  "Buildings": PALETTE.lime,
+  "Residential Buildings": PALETTE.lime,
+  "Commercial Buildings": PALETTE.ltteal,
+  "Cooking": PALETTE.amber,               // Sankey carrier amber
+  "Agriculture": PALETTE.red,             // Sankey loss red
+  "Telecom": PALETTE.violet,              // Sankey demand violet
+  "Miscellaneous": PALETTE.slate,
+  "Non-energy use": PALETTE.ltviolet,
+  // ── primary supply / fuels ────────────────────────────────────────────
+  "Coal": PALETTE.ink,                    // heaviest band, by convention
+  "Coking Coal": PALETTE.ink,
+  "Coking coal": PALETTE.ink,             // the cost sheet's own spelling
+  "Non-coking coal": PALETTE.slate,
+  "Non-coking Coal": PALETTE.slate,       // import-dependence's spelling
+  "Oil and petroleum products": PALETTE.amber,
+  "Oil": PALETTE.amber,
+  "Crude oil": PALETTE.amber,
+  "Natural gas": PALETTE.red,
+  "Gas": PALETTE.red,
+  "Nuclear": PALETTE.violet,
+  "Hydro": PALETTE.blue,
+  "Large Hydro": PALETTE.blue,
+  "Hydro Power Generation": PALETTE.blue,
+  "Small Hydro": PALETTE.dpblue,
+  "Solar": PALETTE.yellow,
+  "Wind": PALETTE.teal,
+  "Others": PALETTE.lime,
+  "Bioenergy": PALETTE.lime,
+  "Biomass": PALETTE.lime,
+  "Bio Energy": PALETTE.lime,
+  "Biomass Base Electricity": PALETTE.lime,
+  "Electricity Import": PALETTE.cyan,
+  "Electricity Imports": PALETTE.cyan,
+  "Electricity trade": PALETTE.cyan,
+  "Electricity": PALETTE.cyan,
+  "CCS": PALETTE.slate,
+  "Carbon Capture Storage (CCS)": PALETTE.slate,
+  // ── generation technologies (capacity / capex / opex / land / water) ──
+  "Coal Power Stations": PALETTE.ink,
+  "Gas Power Stations": PALETTE.red,
+  "Onshore Wind": PALETTE.teal,
+  "Offshore Wind": PALETTE.ltteal,
+  "Solar PV": PALETTE.yellow,
+  "Solar CSP": PALETTE.amber,
+  "Distributed Solar PV": PALETTE.pink,
+  "Green Hydrogen": PALETTE.cyan,
+  "Renewables": PALETTE.teal,
+  "Domestic Fuel production": PALETTE.teal,
+  // Never share a chart with each other, so they can share a colour:
+  "Waste to Electricity": PALETTE.ltviolet,        // capacity only
+  "Standalone PV for Hydrogen": PALETTE.ltviolet,  // capex/opex only
+  "Standalone Wind for Hydrogen": PALETTE.cyan,
+  // ── emissions by sector ───────────────────────────────────────────────
+  "Fuel Production": PALETTE.ink,
+  "Refineries": PALETTE.slate,
+  // ── aggregate line ────────────────────────────────────────────────────
   "Total": "#1b1d29",
 };
 
@@ -110,27 +162,6 @@ function isDarkColor(hex) {
   return 0.2126 * chan(0) + 0.7152 * chan(1) + 0.0722 * chan(2) < 0.42;
 }
 
-// Marker shape follows the same semantic-name-first, index-fallback pattern as
-// colorForSeries(), so a series reads as the same shape on every chart and every
-// tab it appears on, not just the same color — a second, colorblind-safe channel
-// for telling bands apart, per the reference chart's own use of distinct glyphs.
-const SHAPES = ["circle", "triangle", "rect", "rectRot", "star", "crossRot"];
-const SERIES_SHAPE = {
-  "Buildings": "triangle", "Residential Buildings": "triangle", "Commercial Buildings": "rectRot",
-  "Industry": "rect", "Heavy Industry": "rect",
-  "Transport": "circle", "Passenger Transport": "circle", "Freight Transport": "star",
-  "Telecom, Cooking & Transport": "circle",
-  "Agriculture": "rectRot", "Telecom": "star", "Cooking": "crossRot",
-  "Miscellaneous": "crossRot", "Non-energy use": "crossRot",
-  "Solar": "rect", "Solar PV": "rect", "Wind": "circle",
-  "Hydro": "triangle", "Small Hydro": "triangle",
-  "Nuclear": "star", "Others": "triangle", "Bioenergy": "triangle", "Biomass": "triangle",
-  "Coal": "crossRot", "Oil and petroleum products": "rectRot", "Oil": "rectRot",
-  "Natural gas": "rectRot", "Gas": "rectRot",
-  "Electricity Import": "star", "Electricity Imports": "star", "Electricity trade": "star",
-  "Electricity": "circle", "CCS": "crossRot",
-};
-function shapeForSeries(name, i) { return SERIES_SHAPE[name] || SHAPES[i % SHAPES.length]; }
 
 // The reference draws each band as a soft vertical gradient rather than a flat
 // fill — denser at the top of the plot, lighter toward the bottom.
@@ -164,7 +195,11 @@ function areaFill(color) {
   };
 }
 if (window.Chart) {
-  Chart.defaults.font.family = "'IBM Plex Sans', -apple-system, 'Segoe UI', Arial, sans-serif";
+  // Set again from TYPE further down (the authoritative one, alongside
+  // Chart.defaults.font.size); this earlier assignment is kept only because
+  // plugins registered above it read defaults at registration time. Both must
+  // name the same family — see FONT_SANS.
+  Chart.defaults.font.family = '"Roboto", "Helvetica Neue", Arial, system-ui, sans-serif';
   // Every chart canvas on every tab now sits inside a fixed-height
   // .chart-wrap container, so charts size to that container instead of
   // deriving a height from a canvas aspect ratio (which grew with column
@@ -218,10 +253,14 @@ function stackedAreaDatasets(chartData) {
       label: name, data: chartData.series[name], fill: true,
       backgroundColor: areaFill(color), borderColor: color,
       borderWidth: 0.5,
-      // Carried for the legend swatch and the in-band label, which both need
-      // the flat colour rather than the gradient function.
+      // Carried for the legend swatch, the tooltip and the in-band label, all
+      // of which need the flat colour rather than the gradient function.
       bandColor: color,
-      pointStyle: shapeForSeries(name, i),
+      // The legend key is the same small colour box the tooltip draws beside
+      // this series' value. Rendered into a canvas rather than left to
+      // Chart.js's own legend box because `backgroundColor` here is the area
+      // gradient function — the key has to be the flat series colour.
+      pointStyle: swatchCanvas(color, 11),
       stack: "s", tension: 0, pointRadius: 0, order: 1,
     };
   });
@@ -249,14 +288,51 @@ function stackedAreaDatasets(chartData) {
 const INDEX_INTERACTION = { mode: "index", intersect: false };
 
 const AXIS_TEXT = "#000000";
+
+/* ---------- Type, for everything drawn rather than laid out ----------
+   Canvas and SVG do not inherit the stylesheet's font stack, so the family
+   and the scale steps have to be restated here — these are the same steps as
+   dashboard.css's --t-* tokens.
+
+   Two canvas-specific notes:
+   - Canvas 2D cannot request tabular figures at all (no font-feature-settings
+     on a 2D context). It does not need to: Roboto's digits are equal-advance,
+     measured at 1151/2048 units for every digit and asserted by
+     tools/build_fonts.py, so axis ticks and tooltip values cannot jitter as
+     values change. Any future display face must be checked the same way
+     before it is used for canvas numerics — the previous one, Instrument
+     Serif, had proportional digits (249-460 units) and was kept out of the
+     charts for precisely that reason.
+   - Sizes here are pre-zoom logical px, the same space the CSS is authored
+     in, so they match the scale without dividing by --ui-scale. */
+// One family for everything, mirroring --font-roboto in dashboard.css. Canvas
+// and SVG do not inherit the stylesheet, so the stack has to be restated here;
+// keep the two in step. FONT_MONO is retained as a name because the numeric
+// readouts still declare themselves as such, but it resolves to the same
+// family — safe because Roboto's digits are equal-advance (asserted by
+// tools/build_fonts.py), which is the only property a canvas number needs.
+const FONT_SANS = '"Roboto", "Helvetica Neue", Arial, system-ui, sans-serif';
+const FONT_MONO = FONT_SANS;
+const TYPE = {
+  axis:  { family: FONT_SANS, size: 11, weight: 400 },   // --t-axis
+  label: { family: FONT_SANS, size: 13, weight: 400 },   // --t-label
+  body:  { family: FONT_SANS, size: 14, weight: 400 },   // --t-body
+};
+// Chart.js reads its default family/size from here, so any option that does
+// not spell out a font still lands inside the scale instead of on Chart.js's
+// own Helvetica 12.
+if (window.Chart) {
+  Chart.defaults.font.family = FONT_SANS;
+  Chart.defaults.font.size = TYPE.axis.size;
+}
 // Shared axis look for every chart: hairline horizontal rules, no vertical
 // grid and no axis line, matching the reference chart. yAxis()/xAxis() are
 // used by the bar and single-line renderers; renderStackedChart spells the
 // same thing out inline because it also sets stacking and min.
 function axisCommon(titleText) {
   return {
-    title: { display: true, text: titleText, color: AXIS_TEXT, font: { size: 10.5 } },
-    ticks: { color: AXIS_TEXT, font: { size: 10.5 } },
+    title: { display: true, text: titleText, color: AXIS_TEXT, font: TYPE.axis },
+    ticks: { color: AXIS_TEXT, font: TYPE.axis },
     border: { display: false },
   };
 }
@@ -279,7 +355,7 @@ const bandLabelPlugin = {
     if (!chart.options.plugins.bandLabels || !chart.options.plugins.bandLabels.display) return;
     const { ctx } = chart;
     ctx.save();
-    ctx.font = "600 11px 'IBM Plex Sans', -apple-system, 'Segoe UI', Arial, sans-serif";
+    ctx.font = '600 11px "Roboto", "Helvetica Neue", Arial, system-ui, sans-serif';
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
@@ -345,64 +421,138 @@ const bandLabelPlugin = {
 };
 if (window.Chart) Chart.register(bandLabelPlugin);
 
-// Draws one of SHAPES at (x, y) — a small self-contained renderer rather than
-// reaching into Chart.js's internal point-drawing helpers, so it can't drift if
-// the CDN build changes. Mirrors the legend's own pointStyle for the same series
-// (see shapeForSeries()), so the marker on the crosshair always matches the glyph
-// the reader already learned from the legend.
-function drawMarker(ctx, shape, x, y, color, size) {
-  const s = size || 4.5;
+/* ---------- Series key: one small colour box ----------------------------
+   A series is identified by its colour and nothing else. There used to be a
+   second channel here — a (shape x solid/hollow) marker per series, ten
+   combinations resolved per chart so no two bands on one plot shared a glyph.
+   It was removed on request: five shapes in two fills is a second legend the
+   reader has to learn, and the bands themselves are already read by colour,
+   so the glyph only mattered inside the tooltip it appeared in.
+
+   The colour box is drawn by ONE function used in both places it appears —
+   the legend key and the tooltip — so the key beside a value is literally the
+   same mark as the key in the legend. Colour separation across the widest
+   charts is the palette's own job (see the SERIES_COLOR note above: the
+   shipped palette holds a 0.053 minimum luminance gap between any two series
+   that share a plot).
+
+   `size` is the box's full width in px, not a radius. */
+function drawSwatch(ctx, x, y, color, size) {
+  const s = (size || 10) / 2;
+  ctx.save();
+  roundRect(ctx, x - s, y - s, s * 2, s * 2, 2);   // begins its own path
   ctx.fillStyle = color;
-  ctx.strokeStyle = color;
-  ctx.beginPath();
-  switch (shape) {
-    case "triangle":
-      ctx.moveTo(x, y - s); ctx.lineTo(x + s, y + s * 0.8); ctx.lineTo(x - s, y + s * 0.8);
-      ctx.closePath(); ctx.fill();
-      break;
-    case "rect":
-      ctx.fillRect(x - s * 0.8, y - s * 0.8, s * 1.6, s * 1.6);
-      break;
-    case "rectRot":
-      ctx.save(); ctx.translate(x, y); ctx.rotate(Math.PI / 4);
-      ctx.fillRect(-s * 0.75, -s * 0.75, s * 1.5, s * 1.5);
-      ctx.restore();
-      break;
-    case "star": {
-      const spikes = 5, outer = s * 1.15, inner = s * 0.5;
-      let rot = -Math.PI / 2;
-      ctx.moveTo(x + Math.cos(rot) * outer, y + Math.sin(rot) * outer);
-      for (let i = 0; i < spikes; i++) {
-        rot += Math.PI / spikes;
-        ctx.lineTo(x + Math.cos(rot) * inner, y + Math.sin(rot) * inner);
-        rot += Math.PI / spikes;
-        ctx.lineTo(x + Math.cos(rot) * outer, y + Math.sin(rot) * outer);
-      }
-      ctx.closePath(); ctx.fill();
-      break;
-    }
-    case "crossRot":
-      ctx.lineWidth = 2;
-      ctx.moveTo(x - s, y - s); ctx.lineTo(x + s, y + s);
-      ctx.moveTo(x + s, y - s); ctx.lineTo(x - s, y + s);
-      ctx.stroke();
-      break;
-    default: // circle
-      ctx.arc(x, y, s * 0.85, 0, Math.PI * 2); ctx.fill();
-  }
+  ctx.fill();
+  ctx.restore();
 }
 
-// Reference-style hover interaction for every stacked-area chart: a vertical
-// crosshair at the hovered index, plus one small callout box per series
-// positioned at that series' true stacked value — not one combined tooltip
-// block, which reads poorly once a chart has 8-10 series. Chart.js's built-in
-// tooltip box is turned off (tooltip.enabled:false in renderStackedChart) and
-// replaced entirely by this plugin's afterDraw; tooltip.external below is only
-// used to capture the live hover state (dataPoints + opacity), the documented
-// mechanism for a fully custom tooltip — nothing is drawn inside it.
+/* The legend key is that same box, rendered once into a small canvas and
+   handed to Chart.js as `pointStyle`.
+
+   Not left to Chart.js's own legend box, because these datasets carry the area
+   GRADIENT as `backgroundColor` — the built-in box would paint the legend key
+   with a gradient sampled at legend coordinates, which is why an image-backed
+   pointStyle is used even now that the mark is a plain square.
+   Drawn at 2x and scaled down via width/height so it stays crisp under both
+   devicePixelRatio and the page's own `zoom`. */
+const SWATCH_CANVAS_CACHE = new Map();
+function swatchCanvas(color, size) {
+  const px = size || 11;
+  const key = color + "|" + px;
+  const hit = SWATCH_CANVAS_CACHE.get(key);
+  if (hit) return hit;
+  const scale = 2;
+  const pad = 2;
+  const cv = document.createElement("canvas");
+  cv.width = (px + pad * 2) * scale;
+  cv.height = (px + pad * 2) * scale;
+  const c = cv.getContext("2d");
+  c.scale(scale, scale);
+  drawSwatch(c, px / 2 + pad, px / 2 + pad, color, px);
+  // Chart.js draws an image pointStyle at the image's own pixel size, so the
+  // backing store is halved back to CSS px here.
+  cv.style.width = px + pad * 2 + "px";
+  cv.style.height = px + pad * 2 + "px";
+  SWATCH_CANVAS_CACHE.set(key, cv);
+  return cv;
+}
+
+/* Value text for a tooltip box.
+
+   The rules are the reference's, and each one is a real case in this data:
+     - two decimals, so 0.4 and 0.42 do not both read as "0.4";
+     - thousands separators from four digits up (Energy Supply's total passes
+       1,000 Mtoe);
+     - a TRUE minus (U+2212), not a hyphen, for negatives — the emissions
+       chart has negative sinks, and a hyphen at this size reads as a dash
+       between the name and the number;
+     - exact zero as "0", not "0.00", because a band that is simply absent in
+       a given year should not look like a rounded-away quantity.
+   The unit is appended to the VALUE, never to the series name, so the name
+   column stays scannable. */
+function formatSeriesValue(v, unit) {
+  const suffix = unit ? " " + unit : "";
+  if (v == null || isNaN(v)) return "–";
+  if (v === 0) return "0" + suffix;
+  const neg = v < 0;
+  const fixed = Math.abs(v).toFixed(2);
+  const dot = fixed.indexOf(".");
+  const intPart = fixed.slice(0, dot);
+  const decPart = fixed.slice(dot);
+  const grouped = intPart.length >= 4 ? Number(intPart).toLocaleString("en-US") : intPart;
+  return (neg ? "−" : "") + grouped + decPart + suffix;
+}
+
+/* Vertical placement for the tooltip cluster: keep the reading order, keep a
+   gap, and move boxes as little as possible.
+
+   This is Highcharts' distribute() problem. The naive fix — walk down the list
+   pushing each box below its predecessor — is what this replaced, and it drags
+   the whole cluster downward from the first collision onward, so a chart where
+   the top two bands are close ends up with every box displaced and every
+   connector line slanted.
+   The cluster-averaging pass below is the standard solution: boxes that
+   collide are merged into a group and the group is centred on the MEAN of its
+   members' targets, which is the placement minimising total squared
+   displacement subject to order and spacing. Groups then merge transitively,
+   and only the final group positions are clamped into the plot. */
+function distributeBoxes(items, top, bottom, boxH, gap) {
+  if (!items.length) return;
+  const pitch = boxH + gap;
+  const groups = [];
+  items.forEach((it) => {
+    groups.push({ items: [it], sum: it.target, n: 1 });
+    while (groups.length > 1) {
+      const b = groups[groups.length - 1];
+      const a = groups[groups.length - 2];
+      const aFirst = a.sum / a.n - ((a.n - 1) * pitch) / 2;
+      const bFirst = b.sum / b.n - ((b.n - 1) * pitch) / 2;
+      if (bFirst >= aFirst + a.n * pitch) break;   // no overlap: leave both
+      a.items = a.items.concat(b.items);
+      a.sum += b.sum;
+      a.n += b.n;
+      groups.pop();
+    }
+  });
+  groups.forEach((g) => {
+    let first = g.sum / g.n - ((g.n - 1) * pitch) / 2;
+    const min = top + boxH / 2;
+    const max = bottom - boxH / 2 - (g.n - 1) * pitch;
+    first = Math.min(Math.max(first, min), Math.max(min, max));
+    g.items.forEach((it, i) => { it.y = first + i * pitch; });
+  });
+}
+
+// Chart.js's own tooltip is disabled (tooltip.enabled:false in
+// renderStackedChart); `external` is the documented hook for a fully custom
+// tooltip and is used here only to capture the live hover state, never to
+// draw. The drawing happens in the plugin's afterDraw, on the same canvas as
+// the chart, which is what lets the symbols and connectors sit in the plot's
+// own coordinate space.
 function crosshairExternal(context) {
   context.chart._crosshair = context.tooltip;
 }
+
 const crosshairTooltipPlugin = {
   id: "crosshairTooltip",
   afterDraw(chart) {
@@ -413,120 +563,183 @@ const crosshairTooltipPlugin = {
     const { ctx, chartArea } = chart;
     const x = tt.dataPoints[0].element.x;
     const dataIndex = tt.dataPoints[0].dataIndex;
+    const unit = opts.unit || "";
 
     ctx.save();
-    // No full-height crosshair line — each card already has its own leader
-    // line pointing at its true position, so a dashed line running behind
-    // the whole cluster was redundant clutter rather than useful signal.
 
-    // Year tag, echoing the reference's boxed year label. Drawn just inside
-    // the plot area's bottom edge rather than below the axis, so it never
-    // competes with the tick/title row for the fixed chart-wrap height. Drawn
-    // last (see below), on top of the box cluster, and the cluster's own
-    // bottom bound is pulled up by tagH so it doesn't want to sit there anyway.
-    const year = String(chart.data.labels[dataIndex]);
-    ctx.font = "600 10px 'IBM Plex Mono', ui-monospace, Consolas, monospace";
-    const tagW = ctx.measureText(year).width + 12, tagH = 15;
-    const tagX = Math.min(Math.max(x - tagW / 2, chartArea.left), chartArea.right - tagW);
-    const tagY = chartArea.bottom - tagH - 3;
+    /* ── The hovered column, lightened ──────────────────────────────────
+       A band, not a hairline, and deliberately NOT a dim of everything
+       else: the reader is comparing this column against its neighbours, so
+       the neighbours have to stay fully readable. (The Sankey on the Energy
+       Flows tab does dim its surroundings — that is a different question,
+       "what connects to this node", and the two interactions are meant to
+       stay distinguishable.)
+       Column width comes from the spacing between adjacent categories, so it
+       lines up with the band boundaries at any chart width. */
+    const meta0 = chart.getDatasetMeta(0);
+    const pts = (meta0 && meta0.data) || [];
+    let colW = (chartArea.right - chartArea.left) / Math.max(1, (chart.data.labels || []).length);
+    if (pts.length > 1) {
+      const step = Math.abs(pts[1].x - pts[0].x);
+      if (step > 0) colW = step;
+    }
+    ctx.fillStyle = "rgba(255,255,255,.30)";
+    ctx.fillRect(x - colW / 2, chartArea.top, colW, chartArea.bottom - chartArea.top);
+    ctx.fillStyle = "rgba(255,255,255,.85)";
+    ctx.fillRect(x - 1, chartArea.top, 2, chartArea.bottom - chartArea.top);
 
-    // One entry per visible series, formatted the same way the old tooltip
-    // callbacks did (opts here is renderStackedChart's own opts, stashed on
-    // the plugin options below).
-    const fmt = (v) => (opts.compact ? formatCompact(v) : (v == null ? "0" : v.toFixed(2)));
+    /* ── One box per series ─────────────────────────────────────────────── */
     const entries = tt.dataPoints
       .filter((dp) => dp.parsed && dp.parsed.y != null)
-      .map((dp) => ({
-        label: dp.dataset.label,
-        text: `${dp.dataset.label}: ${fmt(dp.parsed.y)}`,
-        color: dp.dataset.bandColor || dp.dataset.borderColor,
-        shape: dp.dataset.pointStyle,
-        trueY: dp.element.y, // the real data position — the marker always stays here
-        y: dp.element.y,     // the box's position — this is what the declutter pass below moves
-        isTotal: dp.dataset.label === "Total",
-      }));
+      .map((dp) => {
+        return {
+          text: dp.dataset.label + ": " + formatSeriesValue(dp.parsed.y, unit),
+          color: dp.dataset.bandColor || dp.dataset.borderColor,
+          // The aggregate line keeps its coloured border but gets no colour
+          // box — it is not one of the stacked bands and has no band to key.
+          isTotal: dp.dataset.label === "Total",
+          trueY: dp.element.y,   // the real data position; never modified
+          target: dp.element.y,  // what distributeBoxes() tries to honour
+          y: dp.element.y,       // where the box actually lands
+        };
+      })
+      // Top-to-bottom in VISUAL stack order at this x, which is what the
+      // reader sees, rather than dataset declaration order.
+      .sort((a, b) => a.trueY - b.trueY);
     if (!entries.length) { ctx.restore(); return; }
 
-    ctx.font = "600 11.5px 'IBM Plex Sans', -apple-system, 'Segoe UI', Arial, sans-serif";
-    let boxH = 24, gap = 4;
-    const padX = 10, markerGutter = 17;
-    const laid = entries
-      .map((e) => ({ ...e, boxW: ctx.measureText(e.text).width + padX * 2 + markerGutter }))
-      .sort((a, b) => a.y - b.y);
-    // Reserve the year tag's own zone at the bottom, then, if the cluster
-    // can't fit N boxes at the default size in what's left (e.g. Energy
-    // Supply's 10 series in a compact chart), shrink box height/gap just
-    // enough that it does — better than fighting an unwinnable overlap
-    // battle between the tag and the bottom-most box.
-    const usableTop = chartArea.top, usableBottom = tagY - gap;
-    const neededSpan = (laid.length - 1) * (boxH + gap) + boxH;
-    const availSpan = usableBottom - usableTop;
-    if (laid.length > 1 && neededSpan > availSpan && availSpan > 0) {
-      const scale = availSpan / neededSpan;
-      boxH = Math.max(14, boxH * scale);
-      gap = Math.max(2, gap * scale);
-    }
-    // Minimum-gap declutter pass, then anchor the whole cluster to the
-    // reserved bottom zone, working back up — trueY is never touched by any
-    // of this, so a displaced box can still be traced to its real value via
-    // the leader line drawn below.
-    for (let i = 1; i < laid.length; i++) {
-      const minY = laid[i - 1].y + boxH + gap;
-      if (laid[i].y < minY) laid[i].y = minY;
-    }
-    let floor = usableBottom;
-    for (let i = laid.length - 1; i >= 0; i--) {
-      if (laid[i].y + boxH / 2 > floor) laid[i].y = floor - boxH / 2;
-      floor = laid[i].y - boxH / 2 - gap;
-    }
+    const padX = 6, padY = 6, radius = 4, distance = 16, keyGutter = 15, gap = 4;
+    ctx.font = "400 " + TYPE.label.size + "px " + TYPE.label.family;
+    entries.forEach((e) => { e.boxW = Math.ceil(ctx.measureText(e.text).width) + padX * 2; });
 
-    const openRight = x < chartArea.left + (chartArea.right - chartArea.left) / 2;
-    // Leader lines first, so the boxes painted afterward sit cleanly on top of
-    // their own line rather than the line crossing over a neighboring box.
-    laid.forEach((e) => {
-      if (Math.abs(e.y - e.trueY) < 2) return;
-      const boxX = openRight
-        ? Math.min(x + 10, chartArea.right - e.boxW)
-        : Math.max(x - 10 - e.boxW, chartArea.left);
-      const nearEdgeX = openRight ? boxX : boxX + e.boxW;
+    /* The category callout is drawn just above the axis with its tail
+       touching it, so the cluster's own floor stops short of that zone. */
+    const tagH = TYPE.label.size + padY * 2 - 2;
+    const tailH = 5;
+    let boxH = TYPE.label.size + padY * 2;
+    const usableTop = chartArea.top + 1;
+    const usableBottom = chartArea.bottom - tagH - tailH - gap;
+
+    // If N boxes cannot fit the plot even packed solid (Energy Supply's ten
+    // in a short chart), shrink the box height rather than let the cluster
+    // overflow the plot or overlap itself.
+    const needed = (entries.length - 1) * (boxH + gap) + boxH;
+    const avail = usableBottom - usableTop;
+    if (entries.length > 1 && needed > avail && avail > 0) {
+      boxH = Math.max(13, boxH * (avail / needed));
+    }
+    distributeBoxes(entries, usableTop, usableBottom, boxH, gap);
+
+    /* Side selection. The cluster sits to the LEFT of the crosshair by
+       default and flips as one unit, never per box, so the reading order
+       survives. The flip is driven by whether the widest box in the cluster
+       actually fits on the left — measured, not assumed from a percentage,
+       because the boxes carry series names of very different lengths ("Oil
+       and petroleum products: 1,234.56 Mtoe" is more than twice "Wind: 0").
+       The ~35% mark the reference uses falls out of this on our charts and
+       is used as the tie-break when both sides fit. */
+    const widest = entries.reduce((m, e) => Math.max(m, e.boxW), 0);
+    const keySpace = keyGutter;
+    const fitsLeft = x - distance - widest - keySpace >= chartArea.left;
+    const inRightZone = x > chartArea.left + (chartArea.right - chartArea.left) * 0.65;
+    const openRight = !fitsLeft || (!inRightZone && x < chartArea.left + (chartArea.right - chartArea.left) * 0.35);
+
+    entries.forEach((e) => {
+      e.boxX = openRight
+        ? Math.min(x + distance + keySpace, chartArea.right - e.boxW)
+        : Math.max(x - distance - e.boxW, chartArea.left + keySpace);
+      // Colour box immediately outside the value box on its left, vertically
+      // centred on the BOX (not on the data point) — it keys the box.
+      e.keyX = e.boxX - keyGutter / 2 - 1;
+    });
+
+    /* Connectors first, so a box painted afterwards covers the line's own end
+       rather than the line crossing over a neighbouring box. Only drawn where
+       the box was actually displaced — an undisplaced box is already beside
+       its point and a connector would just be noise. */
+    entries.forEach((e) => {
+      if (Math.abs(e.y - e.trueY) < 1.5) return;
       ctx.beginPath();
-      ctx.strokeStyle = e.color; ctx.lineWidth = 1;
+      ctx.strokeStyle = e.color;
+      ctx.lineWidth = 1;
       ctx.moveTo(x, e.trueY);
-      ctx.lineTo(nearEdgeX, e.y);
+      ctx.lineTo(openRight ? e.boxX - keyGutter : e.boxX + e.boxW, e.y);
       ctx.stroke();
     });
-    laid.forEach((e) => {
-      const boxX = openRight
-        ? Math.min(x + 10, chartArea.right - e.boxW)
-        : Math.max(x - 10 - e.boxW, chartArea.left);
+
+    entries.forEach((e) => {
       const boxY = e.y - boxH / 2;
-      if (e.isTotal) {
-        roundRect(ctx, boxX, boxY, e.boxW, boxH, 6);
-        ctx.fillStyle = "#fff"; ctx.fill();
-        ctx.lineWidth = 1.5; ctx.strokeStyle = e.color; ctx.stroke();
-      } else {
-        roundRect(ctx, boxX, boxY, e.boxW, boxH, 6);
-        ctx.fillStyle = e.color; ctx.fill();
-      }
-      // The marker always renders at trueY (the real data point), on the
-      // crosshair line itself — never at the box's possibly-decluttered y.
-      // drawMarker() leaves ctx.fillStyle set to the marker's own color, so
-      // the text color has to be (re)applied after it, not before.
-      drawMarker(ctx, e.shape, x, e.trueY, e.color, 5.5);
-      ctx.fillStyle = e.isTotal ? e.color : textOnColor(e.color);
-      ctx.textAlign = "left"; ctx.textBaseline = "middle";
-      ctx.fillText(e.text, boxX + markerGutter, boxY + boxH / 2 + 0.5);
+      // Near-white at 95%, so the faint chart detail behind still shows
+      // through while the text stays fully legible. Colour lives in the
+      // border and the colour box — never in the text, which is one dark
+      // neutral for every series so the values can be compared as a column.
+      roundRect(ctx, e.boxX, boxY, e.boxW, boxH, radius);
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = e.color;
+      ctx.stroke();
+
+      if (!e.isTotal) drawSwatch(ctx, e.keyX, e.y, e.color, 10);
+
+      ctx.fillStyle = "#2b2b2b";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(e.text, e.boxX + padX, boxY + boxH / 2 + 0.5);
     });
 
-    // Year tag drawn last so it always sits on top of the box cluster.
-    roundRect(ctx, tagX, tagY, tagW, tagH, 4);
-    ctx.fillStyle = "#1b1d29"; ctx.fill();
-    ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    /* ── Category callout ───────────────────────────────────────────────
+       A separate box for the x value, darker-bordered and bold so it reads
+       as the axis rather than as another series, with a tail pointing down
+       to the axis line it belongs to. Clamped inside the plot width. */
+    const year = String(chart.data.labels[dataIndex]);
+    ctx.font = "600 " + TYPE.label.size + "px " + TYPE.label.family;
+    const tagW = Math.ceil(ctx.measureText(year).width) + padX * 3;
+    const tagX = Math.min(Math.max(x - tagW / 2, chartArea.left), chartArea.right - tagW);
+    const tagY = chartArea.bottom - tagH - tailH;
+    roundRect(ctx, tagX, tagY, tagW, tagH, radius);
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "#333333";
+    ctx.stroke();
+    // The tail: a small triangle hanging off the box's bottom edge, its point
+    // on the axis line. Filled and stroked to match the box, with the shared
+    // edge painted over so the two read as one shape.
+    const tailX = Math.min(Math.max(x, tagX + radius + 5), tagX + tagW - radius - 5);
+    ctx.beginPath();
+    ctx.moveTo(tailX - 5, tagY + tagH);
+    ctx.lineTo(tailX, tagY + tagH + tailH);
+    ctx.lineTo(tailX + 5, tagY + tagH);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.fill();
+    ctx.strokeStyle = "#333333";
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.strokeStyle = "rgba(255,255,255,0.95)";
+    ctx.lineWidth = 1.6;
+    ctx.moveTo(tailX - 4.4, tagY + tagH);
+    ctx.lineTo(tailX + 4.4, tagY + tagH);
+    ctx.stroke();
+
+    ctx.fillStyle = "#2b2b2b";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "600 " + TYPE.label.size + "px " + TYPE.label.family;
     ctx.fillText(year, tagX + tagW / 2, tagY + tagH / 2 + 0.5);
 
-    // Exposed for tests: the plugin's own computed layout, rather than reaching
-    // into canvas pixels to verify hover behavior.
-    chart._crosshairLayout = { x, dataIndex, boxes: laid };
+    // Exposed for tests: the plugin's own computed layout, rather than
+    // reaching into canvas pixels to verify hover behaviour.
+    chart._crosshairLayout = {
+      x: x, dataIndex: dataIndex, openRight: openRight, boxH: boxH,
+      boxes: entries.map((e) => ({
+        text: e.text, color: e.color,
+        y: e.y, trueY: e.trueY, boxX: e.boxX, boxW: e.boxW, keyX: e.keyX,
+        displaced: Math.abs(e.y - e.trueY) >= 1.5, isTotal: e.isTotal,
+      })),
+      tag: { x: tagX, y: tagY, w: tagW, h: tagH, text: year },
+    };
     ctx.restore();
   },
 };
@@ -544,13 +757,15 @@ function renderStackedChart(canvasId, chartData, changedSeries, opts) {
     // the right. `totalFirst` reorders only the legend, not the datasets —
     // "Total" has to stay last in draw order so its line paints on top of
     // the stack, but it reads first as the headline series.
-    // Round dot markers and no boxes, per the reference legend; the Total
-     // dataset overrides pointStyle to "line" so the aggregate reads as a line.
+    // Each key is a small colour box (swatchCanvas, via the dataset's own
+    // pointStyle) — the same mark the tooltip draws beside that series' value.
+    // The Total dataset overrides pointStyle to "line", since it is drawn as a
+    // line over the stack rather than as a band.
     const legend = {
       position: opts.legendPosition || "bottom",
       labels: {
-        boxWidth: 8, boxHeight: 8, usePointStyle: true, pointStyleWidth: 10,
-        font: { size: 10.5 }, color: "#000000", padding: 12,
+        boxWidth: 15, boxHeight: 15, usePointStyle: true,
+        font: TYPE.label, color: "#000000", padding: 12,
       },
     };
     if (opts.totalFirst) {
@@ -573,7 +788,7 @@ function renderStackedChart(canvasId, chartData, changedSeries, opts) {
           // tooltips: it only hands us the live hover state, nothing paints
           // here.
           tooltip: { ...INDEX_INTERACTION, enabled: false, external: crosshairExternal },
-          crosshairTooltip: { display: true, compact: !!opts.compact },
+          crosshairTooltip: { display: true, compact: !!opts.compact, unit: unit },
           // Names written inside the bands, as the reference does. Off for
           // charts too small to hold them (the delta-style compact ones).
           bandLabels: { display: opts.bandLabels !== false },
@@ -587,16 +802,16 @@ function renderStackedChart(canvasId, chartData, changedSeries, opts) {
         scales: {
           y: {
             stacked: true, min: 0,
-            title: { display: true, text: unit, color: "#000000", font: { size: 10.5 } },
-            ticks: { ...yTicks, color: "#000000", font: { size: 10.5 } },
+            title: { display: true, text: unit, color: "#000000", font: TYPE.axis },
+            ticks: { ...yTicks, color: "#000000", font: TYPE.axis },
             // Hairline horizontal rules only — the reference has no axis line
             // and no vertical grid, so the bands carry the shape.
             grid: { color: "#EDEDE8", drawTicks: false, drawBorder: false },
             border: { display: false },
           },
           x: {
-            title: { display: true, text: "Year", color: "#000000", font: { size: 10.5 } },
-            ticks: { color: "#000000", font: { size: 10.5 } },
+            title: { display: true, text: "Year", color: "#000000", font: TYPE.axis },
+            ticks: { color: "#000000", font: TYPE.axis },
             grid: { display: false },
             border: { display: false },
           },
@@ -631,10 +846,16 @@ function renderStackedBarChart(canvasId, chartData, opts) {
   opts = opts || {};
   const unit = opts.unit || "";
   const names = Object.keys(chartData.series);
-  const datasets = names.map((name, i) => ({
-    label: name, data: chartData.series[name], backgroundColor: colorForSeries(name, i),
-    pointStyle: "circle", stack: "s", borderRadius: 2,
-  }));
+  const datasets = names.map((name, i) => {
+    const color = colorForSeries(name, i);
+    return {
+      label: name, data: chartData.series[name], backgroundColor: color,
+      // Same colour-box key as the stacked-area charts, so the legend reads
+      // identically across chart types.
+      pointStyle: swatchCanvas(color, 11),
+      stack: "s", borderRadius: 2,
+    };
+  });
   if (chartData.total) {
     datasets.push({
       label: "Total", data: chartData.total, type: "line", fill: false,
@@ -653,7 +874,10 @@ function renderStackedBarChart(canvasId, chartData, opts) {
         responsive: false,
         interaction: INDEX_INTERACTION,
         plugins: {
-          legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } },
+          legend: {
+            position: "bottom",
+            labels: { boxWidth: 15, boxHeight: 15, usePointStyle: true, font: TYPE.label },
+          },
           tooltip: INDEX_INTERACTION,
         },
         scales: { y: yAxis(unit, { stacked: true, min: 0 }), x: xAxis("Period", { stacked: true }) },
@@ -696,7 +920,9 @@ const endpointLabelPlugin = {
       if (value == null) return;
       const label = `${ds.label} | ${value.toFixed(2)}`;
       ctx.save();
-      ctx.font = "600 10px 'IBM Plex Mono', ui-monospace, Consolas, monospace";
+      // Roboto, like everything else. Safe for a numeric callout because its
+      // digits are equal-advance — see FONT_MONO.
+      ctx.font = '600 10px "Roboto", "Helvetica Neue", Arial, system-ui, sans-serif';
       const padX = 6, boxH = 16;
       const boxW = ctx.measureText(label).width + padX * 2;
       const x = point.x + 8, y = point.y - boxH / 2;
@@ -795,7 +1021,12 @@ function pumpModel() {
   run.then(() => {
     modelBusy = false;
     if (queuedTask) pumpModel();
-    else setStatus("live · " + new Date().toLocaleTimeString(), "");
+    // Idle says nothing. This used to print "live · 7:09:17 PM" — a wall clock,
+    // ticking to the second, next to a projection that ends in 2047. It looked
+    // like telemetry from a running system and was really just the time the
+    // last fetch returned. The chip now only speaks when there is something
+    // true to say: recalculating, or failed.
+    else setStatus("", "");
   }).catch((err) => {
     console.error(err);
     modelBusy = false;
@@ -833,9 +1064,12 @@ function scheduleRecalc() {
   recalcTimer = setTimeout(() => requestModel({ kind: "recalc" }), 250);
 }
 
-document.querySelectorAll(".cdh-pathway-btn").forEach((btn) => {
-  btn.addEventListener("click", () => setScenario(btn.dataset.level));
-});
+const scenarioSelect = document.getElementById("scenario-select");
+if (scenarioSelect) {
+  scenarioSelect.addEventListener("change", () => {
+    if (scenarioSelect.value) setScenario(scenarioSelect.value);
+  });
+}
 
 // Sets one lever's hidden-input value — the single source of truth read
 // by recalc()/setScenario(). The visible control is the sub-sector's
@@ -847,49 +1081,61 @@ function setLeverLevel(id, level) {
   hidden.value = Math.min(level, max);
 }
 
-// Mirrors the mockup's activePath check: if every lever sits at the same
-// level, name that level's pathway (and highlight that level's top-right
-// button); otherwise it's a custom mix and no button is highlighted.
-const PATHWAY_NAMES = { 1: "Least Effort", 2: "Determined Effort", 3: "Aggressive Effort", 4: "Heroic Effort" };
+// PATHWAY_NAMES lived here, mapping a level to its display name for the chip's
+// own text. The chip is the <select> itself now, so the names come from its
+// options — one source instead of two that could disagree on wording (they
+// already did: "Least Effort" here against "Least effort" in the markup).
+
+// Which preset, if any, the current lever vector IS.
+//
+// The old test was `values.every(v => v === values[0])` — every lever on the
+// identical level — and it was wrong for every pathway above 3, because
+// seven levers cannot reach 4: rows 31/40/59-62 stop at 3 and the model
+// clamps them. So choosing "Heroic effort" wrote the heroic vector and the
+// interface then reported "Custom pathway" and un-highlighted the button you
+// had just pressed.
+// A pathway is level N when every lever is at min(N, its own ceiling), which
+// is exactly what /set_scenario writes and the same saturation rule
+// updateLeverRow uses to decide whether a row is in step.
+function matchingPreset() {
+  const hiddens = ids.map((id) => document.getElementById(id));
+  for (const level of [1, 2, 3, 4]) {
+    const matches = hiddens.every((h) =>
+      parseInt(h.value, 10) === Math.min(level, parseInt(h.dataset.max, 10)));
+    if (matches) return level;
+  }
+  return null;
+}
+
+// Reflects the loaded lever vector into the pathway chip. The select IS the
+// readout — setting its value is what displays the name, including the
+// disabled "Custom pathway" option (value "") when no preset matches — so
+// there is no separate text node to keep in step any more.
 function updatePathwayName() {
-  const values = ids.map((id) => parseInt(document.getElementById(id).value, 10));
-  const first = values[0];
-  const allSame = values.every((v) => v === first);
-  const named = allSame && PATHWAY_NAMES[first];
-  document.getElementById("pathway-name").textContent = named ? PATHWAY_NAMES[first] : "Custom pathway";
-  // The indicator dot carries the effort level, so the chip beside the tabs
-  // shows how ambitious the loaded pathway is without reading the text.
+  const preset = matchingPreset();
+  // The dot carries the effort level, so the chip shows how ambitious the
+  // loaded pathway is without reading the name.
   const chip = document.querySelector(".pathway-chip");
-  if (chip) chip.dataset.level = named ? String(first) : "custom";
-  document.querySelectorAll(".cdh-pathway-btn").forEach((btn) => {
-    btn.classList.toggle("active", allSame && parseInt(btn.dataset.level, 10) === first);
-  });
+  if (chip) chip.dataset.level = preset ? String(preset) : "custom";
+  if (scenarioSelect) scenarioSelect.value = preset ? String(preset) : "";
 }
 
-// Recomputes each group box's "avg N.N" badge from its own levers'
-// current values — purely a display of the underlying real Control-sheet
-// rows, independent of the flattened sub-sector rows shown in the UI.
-function updateGroupAvg(box) {
-  const leverIds = (box.dataset.leverIds || "").split(",").filter(Boolean);
-  const avgEl = box.querySelector(".lg-box-avg");
-  if (!leverIds.length || !avgEl) return;
-  const values = leverIds.map((id) => parseInt(document.getElementById(id).value, 10));
-  const avg = values.reduce((a, b) => a + b, 0) / values.length;
-  avgEl.textContent = "avg " + avg.toFixed(1);
-}
-
-function updateAllGroupAvgs() {
-  document.querySelectorAll(".lg-box[data-lever-ids]").forEach(updateGroupAvg);
-}
+// updateGroupAvg()/updateAllGroupAvgs() lived here and are gone with the
+// group-head badge they wrote into. The badge went through "avg N.N" and then
+// "21 levers · L3-4" and neither justified the space: a group's state is
+// legible from its own rows' sliders, and the loaded pathway is named in the
+// deck's select and in the chip beside the tabs. Nothing else read
+// .lg-box[data-lever-ids], so that attribute is gone from the markup too.
 
 // Paints one lever's fill/thumb from its CURRENT numeric value (1-based
 // index into data-fills, the same LEVEL_FILL ramp sidebar.py renders the
 // track with) — shared by drag (initLevers' own input handler) and by every
 // external sync below (recalc, pathway button, flyout edit on a bundled row).
-function paintLever(lever, value, max) {
+function paintLever(lever, value, max, spread) {
   const fills = lever.dataset.fills.split(",");
   const color = fills[Math.min(value - 1, fills.length - 1)];
-  const pct = max > 1 ? ((value - 1) / (max - 1)) * 100 : 0;
+  const at = (v) => (max > 1 ? ((v - 1) / (max - 1)) * 100 : 0);
+  const pct = at(value);
   // Sets the one CSS custom property the track/fill/thumb/glow all read
   // (--lg-lever-color in dashboard.css) rather than painting each element's
   // background directly, so the thumb's radial-gradient + glow ring stay
@@ -897,6 +1143,24 @@ function paintLever(lever, value, max) {
   lever.style.setProperty("--lg-lever-color", color);
   lever.querySelector(".lg-lever-fill").style.width = pct + "%";
   lever.querySelector(".lg-lever-thumb").style.left = pct + "%";
+
+  // The spread band: where this row's levers actually sit when they don't all
+  // sit together. A group row drives several real levers with different
+  // Control-sheet ceilings, so "Buildings" on the heroic pathway is genuinely
+  // five levers at 4 and one (lv40, capped at 3) at 3 — one handle at the
+  // rounded average was reporting a level no lever was on. The band shows the
+  // real low-to-high extent and the handle keeps marking the average within
+  // it; with every lever on the same level there is nothing to show and the
+  // band stays hidden.
+  const band = lever.querySelector(".lg-lever-band");
+  if (!band) return;
+  if (!spread || spread.lo === spread.hi) {
+    band.style.display = "none";
+    return;
+  }
+  band.style.display = "block";
+  band.style.left = at(spread.lo) + "%";
+  band.style.width = (at(spread.hi) - at(spread.lo)) + "%";
 }
 
 // Reflects one sub-sector's row: if every lever inside it is currently at
@@ -930,17 +1194,55 @@ function updateLeverRow(row) {
     : Math.round(values.reduce((a, b) => a + b, 0) / values.length);
   lever.querySelector(".lg-lever-input").value = shown;
   lever.classList.toggle("is-mixed", !inStep);
-  paintLever(lever, shown, max);
+  // The band draws the row's real low-to-high extent whenever its levers are
+  // not all on one level — including the saturated case, which is the case
+  // that actually occurs on the presets. `inStep ? null : ...` was tried
+  // first and meant the band never appeared at all on any preset: on the
+  // heroic pathway Buildings is five levers at 4 and one (lv40, capped at 3)
+  // at 3, which inStep correctly calls "in step" — but "in step" is a
+  // statement about the THUMB (the row is set as high as it goes, so no
+  // hollow mixed thumb) and it is not a statement about where the levers
+  // sit. Those are different questions and the answer to the second one is
+  // 3-to-4. paintLever hides the band on lo === hi, so a genuinely uniform
+  // row still draws nothing.
+  const lo = Math.min.apply(null, values);
+  const hi = Math.max.apply(null, values);
+  paintLever(lever, shown, max, { lo: lo, hi: hi });
+  // Said in words too, so a row is readable without dragging it. Three
+  // distinct states, because "in step" and "all on one level" are not the
+  // same thing: a saturated row IS in step (nothing is out of place) while
+  // still spanning two levels, and a sentence claiming "6 levers at level 4"
+  // next to a band drawn across 3–4 contradicted its own control.
+  //
+  // A data attribute, NOT `lever.title`. As a native title it was a second
+  // tooltip: the browser's own dark box appeared over the row at the same
+  // time as the deck's white popup, in a different place and a different
+  // style, saying a different half of the same thing. This is now the state
+  // line INSIDE that one popup (initLeverTooltip's renderGroup reads it), so
+  // there is exactly one thing on screen when you hover a lever.
+  if (!inStep) {
+    lever.dataset.rowState = leverIds.length + " levers out of step, across levels " + lo + "–" + hi + " of " + max;
+  } else if (lo !== hi) {
+    lever.dataset.rowState = leverIds.length + " levers, each as high as it goes — levels " + lo + "–" + hi + " of " + max;
+  } else {
+    lever.dataset.rowState = leverIds.length > 1
+      ? "All " + leverIds.length + " levers at level " + target + " of " + max
+      : "Level " + values[0] + " of " + max;
+  }
 }
 
 function updateAllSubcatQuickButtons() {
   document.querySelectorAll(".lg-subcat-row").forEach(updateLeverRow);
 }
 
-// Shared by the KPI cards and the change-strip's default (no-change)
-// sentence, so the two can never quietly disagree about how "clean share"
-// or "emissions in GtCO2" is derived.
+// Clean share is now computed in outputs.py (kpis.clean_share) rather than
+// here. It had to move: it is one of the four headline cards, so the Insights
+// panel has to report its before/after alongside the other three, and
+// kpi_deltas() can only diff values the model actually emits. This reader
+// keeps the rounding in one place and falls back to the old client-side
+// formula only if an older cached payload arrives without the field.
 function cleanSharePct(data) {
+  if (data.kpis && typeof data.kpis.clean_share === "number") return Math.round(data.kpis.clean_share);
   return data.total_supply ? Math.round((data.renewables + data.nuclear) / data.total_supply * 100) : 0;
 }
 function emissionsGt(data) {
@@ -951,15 +1253,34 @@ function emissionsGt(data) {
   return typeof data.emissions_2047_total === "number" ? data.emissions_2047_total / 1000 : null;
 }
 
+// "9.6 GtCO₂" with a real <sub>, not U+2082.
+//
+// The KPI figure is set in Instrument Serif, and Instrument Serif contains no
+// subscript-two glyph — checked against the upstream TTF, not guessed (see
+// tools/build_fonts.py). With the literal character, that one glyph came from
+// a fallback serif in the largest text on the page, which is the most visible
+// place a mismatch can happen. <sub> subscripts the display face's own "2".
+// Built with DOM nodes rather than innerHTML because the number is
+// interpolated.
+function setEmissionsFigure(el, gt) {
+  el.textContent = "";
+  if (gt == null || isNaN(gt)) { el.textContent = "–"; return; }
+  el.appendChild(document.createTextNode(gt.toFixed(1) + " GtCO"));
+  const sub = document.createElement("sub");
+  sub.textContent = "2";
+  el.appendChild(sub);
+}
+
+// The emissions card is gone from the KPI row (see all_energy.py) — the GHG
+// gauge above Custom Pathways is the same number from the same field, so this
+// no longer writes it. setEmissionsFigure() is still used, by the gauge.
 function renderOverviewKpis(data) {
-  const gt = emissionsGt(data);
   const demandEl = document.getElementById("stat-demand-value");
   if (!demandEl) return; // not every tab has the KPI row (All Energy only)
   demandEl.textContent = data.total_demand.toLocaleString() + " Mtoe";
   document.getElementById("stat-demand-note").textContent = data.kpis.per_capita_demand.toLocaleString() + " MJ/person";
   document.getElementById("stat-clean-value").textContent = cleanSharePct(data) + "%";
   document.getElementById("stat-imports-value").textContent = data.kpis.import_dependence + "%";
-  document.getElementById("stat-emissions-value").textContent = gt != null ? gt.toFixed(1) + " GtCO₂" : "–";
 }
 
 // Display metadata for the KPI keys app.py's kpi_deltas() can return — one
@@ -971,12 +1292,24 @@ const KPI_LABELS = {
   total_supply: { label: "Total supply", unit: "Mtoe", scale: 1 },
   per_capita_demand: { label: "Per-capita demand", unit: "MJ/person", scale: 1 },
   import_dependence: { label: "Imported fuel share", unit: "%", scale: 1 },
+  clean_share: { label: "Clean share", unit: "%", scale: 1 },
   emissions_2047_total: { label: "Emissions (2047)", unit: "GtCO₂", scale: 1 / 1000 },
 };
+
+// The four KPI cards, in the order the cards themselves are laid out — the two
+// headline figures first, then the supporting pair (see all_energy.py). The
+// Insights panel walks this list so "the resulting change in the four KPIs"
+// is literally the four cards on screen, in their own order, rather than
+// whatever order kpi_deltas() happened to return.
+const CARD_KPI_KEYS = ["total_demand", "emissions_2047_total", "clean_share", "import_dependence"];
 function fmtKpi(key, value) {
   const meta = KPI_LABELS[key];
   const v = value * meta.scale;
-  const num = v.toLocaleString(undefined, { maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 1 });
+  // minimumFractionDigits matches the maximum below 100, so a before → after
+  // pair reads "2.0 GtCO₂ → 2.1 GtCO₂" rather than "2 GtCO₂ → 2.1 GtCO₂" —
+  // the same quantity should not change its number of decimals mid-sentence.
+  const digits = Math.abs(v) >= 100 ? 0 : 1;
+  const num = v.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
   return meta.unit === "%" ? num + "%" : num + " " + meta.unit;
 }
 
@@ -991,13 +1324,18 @@ function fmtKpi(key, value) {
 // (the changed figure itself, bolded for emphasis) — built via DOM methods
 // rather than innerHTML since these get concatenated with lever/KPI names,
 // so nothing here ever gets parsed as markup.
-function addInsightsLine(body, arrow, segments) {
+// `direction` is "up" | "down" | null. It used to be the glyph itself ("▲" /
+// "▼"), which the badge then string-compared to pick its class — and Roboto
+// contains no triangles (nor any arrow), so the glyph would have fallen back
+// to whatever the OS had, inside a coloured chip. The triangle is drawn in
+// CSS now (.insights-arrow-up/-down), so passing a direction rather than a
+// character is both the fix and the clearer contract.
+function addInsightsLine(body, direction, segments) {
   const row = document.createElement("div");
   row.className = "insights-line";
-  if (arrow) {
+  if (direction) {
     const badge = document.createElement("span");
-    badge.className = "insights-arrow " + (arrow === "▲" ? "insights-arrow-up" : "insights-arrow-down");
-    badge.textContent = arrow;
+    badge.className = "insights-arrow insights-arrow-" + direction;
     badge.setAttribute("aria-hidden", "true");
     row.appendChild(badge);
   }
@@ -1005,6 +1343,8 @@ function addInsightsLine(body, arrow, segments) {
   segments.forEach((seg) => {
     if (typeof seg === "string") {
       text.appendChild(document.createTextNode(seg));
+    } else if (seg.arrow) {
+      text.appendChild(arrowEl());
     } else {
       const strong = document.createElement("strong");
       strong.textContent = seg.strong;
@@ -1015,15 +1355,47 @@ function addInsightsLine(body, arrow, segments) {
   body.appendChild(row);
 }
 
-// A small caps label + rule ("line of segregation") ahead of each group of
-// insight lines, so "what changed" and "what it did to the numbers" read as
-// two distinct groups rather than one undifferentiated list.
-function addInsightsGroupLabel(body, label) {
-  const h = document.createElement("div");
-  h.className = "insights-group-label";
-  h.textContent = label;
-  body.appendChild(h);
+/* The "→" in "9.6 GtCO₂ → 8.5 GtCO₂", as an inline SVG rather than U+2192.
+   Roboto has no arrows at all (U+2190-2193 absent from all 927 of its
+   codepoints — checked against the upstream TTF, see tools/build_fonts.py),
+   so the character would have been served by a system fallback: one glyph in
+   a different face, mid-sentence, in the one panel whose whole job is to be
+   read. A drawn arrow cannot fall back.
+   Sized in `em` and stroked in `currentColor`, so it tracks the font size and
+   colour of whatever line it sits in — including the --ui-scale zoom. */
+const ARROW_PATH = "M4 12h15M13 6l6 6-6 6";
+function arrowEl() {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("class", "in-arrow");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  // Labelled, NOT aria-hidden. The character it replaces was announced
+  // ("rightwards arrow"); hiding the shape would leave a screen reader with
+  // "Final demand 2,202 Mtoe 2,059 Mtoe" and no relationship between the two
+  // figures. "to" is what the arrow means here.
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "to");
+  const p = document.createElementNS(NS, "path");
+  p.setAttribute("d", ARROW_PATH);
+  p.setAttribute("fill", "none");
+  p.setAttribute("stroke", "currentColor");
+  p.setAttribute("stroke-width", "2.4");
+  p.setAttribute("stroke-linecap", "round");
+  p.setAttribute("stroke-linejoin", "round");
+  svg.appendChild(p);
+  return svg;
 }
+// Same arrow for the one place that builds its content as an HTML string (the
+// Sankey link tooltip, "Coal → Solid"). Same path data, so the two cannot
+// drift apart.
+const ARROW_SVG = '<svg class="in-arrow" viewBox="0 0 24 24" role="img" aria-label="to">' +
+  '<path d="' + ARROW_PATH + '" fill="none" stroke="currentColor" stroke-width="2.4" ' +
+  'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+// addInsightsGroupLabel() lived here — a small-caps label + rule ahead of each
+// group of insight lines, back when the panel showed two lists ("Levers
+// changed", then "Effect on the four KPIs"). The lever list is gone (see
+// renderInsights), so there is one list and nothing left to separate.
 
 // Always rendered into the rail's permanent Insights block (called from
 // applyResult on every recalc) — no open/close state, unlike the
@@ -1057,7 +1429,7 @@ function renderEmissionsBar(data) {
   const pct = Math.max(0, Math.min(100, (gt / EMISSIONS_SCALE_GT) * 100));
   fill.style.width = pct + "%";
   value.style.left = pct + "%";
-  value.textContent = gt.toFixed(1) + " GtCO₂";
+  setEmissionsFigure(value, gt);
   // Inside the fill (white) whenever the fill is genuinely wide enough to hold
   // the text, otherwise just outside it in dark ink. Measured in pixels rather
   // than guessed from the percentage: the track's width varies with the window
@@ -1074,6 +1446,51 @@ function renderEmissionsBar(data) {
   }
 }
 
+/* The base state's own content. "Nothing has been changed yet" described the
+   reader's click history, not the pathway — an empty state standing in for a
+   fact the payload already contains. These are read straight out of the
+   result on screen:
+
+   - Coal's share of 2047 primary supply, from supply_chart's own Coal series
+     over its own total. One source, so the share cannot disagree with the
+     Energy Supply chart it is describing.
+   - Where final demand ends up relative to 2022, from demand_chart.total's
+     first and last years.
+
+   Both are properties of the loaded pathway, so they change when you pick a
+   different one — which is the point: the panel says something different
+   about Least Effort than about Heroic Effort before you touch a lever. */
+function lastOf(arr) { return Array.isArray(arr) && arr.length ? arr[arr.length - 1] : null; }
+
+function renderBaseStateFacts(body, data) {
+  const supply = data.supply_chart;
+  const coal2047 = supply && supply.series ? lastOf(supply.series["Coal"]) : null;
+  const supply2047 = supply ? lastOf(supply.total) : null;
+  if (coal2047 != null && supply2047) {
+    const pct = Math.round((coal2047 / supply2047) * 100);
+    addInsightsLine(body, null, [
+      "Coal still carries ", { strong: pct + "%" },
+      ` of primary supply in 2047 (${Math.round(coal2047).toLocaleString()} of ${Math.round(supply2047).toLocaleString()} Mtoe).`,
+    ]);
+  }
+
+  const demand = data.demand_chart;
+  const first = demand && Array.isArray(demand.total) ? demand.total[0] : null;
+  const last = demand ? lastOf(demand.total) : null;
+  if (first && last) {
+    const growth = Math.round(((last - first) / first) * 100);
+    addInsightsLine(body, null, [
+      "Final demand goes from ", { strong: Math.round(first).toLocaleString() + " Mtoe" },
+      " in 2022 to ", { strong: Math.round(last).toLocaleString() + " Mtoe" },
+      ` in 2047 — ${growth > 0 ? "up" : "down"} ${Math.abs(growth)}% over the period.`,
+    ]);
+  }
+
+  addInsightsLine(body, null, [
+    "Move any lever in Custom Pathways below and this panel reports what it did.",
+  ]);
+}
+
 function renderInsights(data) {
   const body = document.getElementById("insights-panel-body");
   body.innerHTML = "";
@@ -1081,35 +1498,45 @@ function renderInsights(data) {
   const leverChanges = data.lever_changes || [];
   const kpiChanges = data.kpi_deltas || {};
 
+  // `leverChanges` is still read, but only to decide WHETHER anything has
+  // moved. The list of moved levers is deliberately not printed: which lever
+  // sits where is already shown, live, by the Custom Pathways deck below —
+  // every moved row's handle is visibly off its neighbours' position — so
+  // restating it here filled the panel with rows the reader had just set
+  // themselves and pushed the KPI effects, the one thing the deck cannot
+  // show, below the fold. This panel now answers exactly one question: what
+  // did that do to the results?
   if (!leverChanges.length) {
-    // No "Base state" chip: which levers are where is already legible in the
-    // Custom Pathways deck itself, so labelling the idle message added a
-    // heading over a single sentence and nothing else. The changed-state
-    // groups below ("Levers changed" / "Impact on results") keep theirs —
-    // those genuinely separate two lists.
-    addInsightsLine(body, null, ["This is the base pathway — nothing has been changed yet. Adjust a lever in Custom Pathways below to see its impact."]);
+    // No "Base state" chip either: labelling the idle message put a heading
+    // over a single sentence and nothing else.
+    renderBaseStateFacts(body, data);
     return;
   }
 
-  const raised = leverChanges.filter((c) => c.to > c.from).map((c) => c.name);
-  const lowered = leverChanges.filter((c) => c.to < c.from).map((c) => c.name);
-  if (raised.length || lowered.length) {
-    addInsightsGroupLabel(body, "Levers changed");
-    if (raised.length) addInsightsLine(body, "▲", ["Raised effort on ", { strong: raised.join(", ") }, "."]);
-    if (lowered.length) addInsightsLine(body, "▼", ["Lowered effort on ", { strong: lowered.join(", ") }, "."]);
-  }
-
-  const kpiEntries = Object.entries(kpiChanges).filter(([key]) => KPI_LABELS[key]);
-  if (kpiEntries.length) {
-    addInsightsGroupLabel(body, "Impact on results");
-    kpiEntries.forEach(([key, d]) => {
-      const meta = KPI_LABELS[key];
-      const dir = d.delta > 0 ? "increased" : "decreased";
-      const pct = d.pct != null ? ` (${Math.abs(d.pct)}%)` : "";
-      addInsightsLine(body, d.delta > 0 ? "▲" : "▼",
-        [`${meta.label} ${dir}${pct} to `, { strong: fmtKpi(key, d.to) }, "."]);
-    });
-  }
+  // The four cards, in card order, each with its own before → after. A card
+  // that did not move is stated as unchanged rather than dropped: "emissions
+  // held still while demand fell" is a real result, and silently omitting it
+  // reads as an oversight.
+  //
+  // No group label over these. It marked a second list back when the lever
+  // list was the first one; with that gone there is one list, and the panel's
+  // own "Insights" heading already sits directly above it.
+  CARD_KPI_KEYS.forEach((key) => {
+    const meta = KPI_LABELS[key];
+    const d = kpiChanges[key];
+    if (!d) {
+      addInsightsLine(body, null, [meta.label + " ", { strong: "unchanged" }]);
+      return;
+    }
+    const pct = d.pct != null ? ` (${d.delta > 0 ? "+" : "−"}${Math.abs(d.pct)}%)` : "";
+    // The before/after arrow is a drawn element between two bolded figures,
+    // not a character inside one string — see arrowEl().
+    addInsightsLine(body, d.delta > 0 ? "up" : "down", [
+      meta.label + " ",
+      { strong: fmtKpi(key, d.from) }, { arrow: true }, { strong: fmtKpi(key, d.to) },
+      pct,
+    ]);
+  });
 }
 
 // renderSupplySplit() and computeImportRelianceSeries() lived here. Both
@@ -1129,7 +1556,6 @@ function applyResult(data) {
   renderInsights(data);
   renderEmissionsBar(data);
   updatePathwayName();
-  updateAllGroupAvgs();
   updateAllSubcatQuickButtons();
   // All Energy's two headline charts: same renderer, same live lever
   // reaction, vertical legend on the right with Total first.
@@ -1149,26 +1575,26 @@ function applyResult(data) {
     renderStackedChart("energyImportsChart", data.energy_imports_chart, null, { unit: "Mtoe", legendPosition: "right" });
   }
   if (data.emissions_by_sector_chart) {
-    renderStackedChart("emissionsBySectorChart", data.emissions_by_sector_chart, null, { unit: "Million tonne CO2e", legendPosition: "right" });
+    renderStackedChart("emissionsBySectorChart", data.emissions_by_sector_chart, null, { unit: "Mt CO₂e", legendPosition: "right" });
   }
   if (data.per_capita_emissions_chart) {
-    renderBarChart("perCapitaEmissionsChart", data.per_capita_emissions_chart, { unit: "tonne CO2e per person", color: "#8B7FD4" });
-    renderBarChart("indPerCapitaEmissionsChart", data.per_capita_emissions_chart, { unit: "tonne CO2e/person", color: "#8B7FD4" });
+    renderBarChart("perCapitaEmissionsChart", data.per_capita_emissions_chart, { unit: "tonne CO2e per person", color: PALETTE.red });
+    renderBarChart("indPerCapitaEmissionsChart", data.per_capita_emissions_chart, { unit: "tonne CO2e/person", color: PALETTE.red });
   }
   if (data.emissions_intensity_chart) {
-    renderBarChart("indEmissionsIntensityChart", data.emissions_intensity_chart, { unit: "kg CO2e / 1000 INR", color: "#8B7FD4" });
+    renderBarChart("indEmissionsIntensityChart", data.emissions_intensity_chart, { unit: "kg CO2e / 1000 INR", color: PALETTE.red });
   }
   if (data.energy_intensity_chart) {
-    renderBarChart("indEnergyIntensityChart", data.energy_intensity_chart, { unit: "MJ/INR", color: "#F7E48F" });
+    renderBarChart("indEnergyIntensityChart", data.energy_intensity_chart, { unit: "MJ/INR", color: PALETTE.blue });
   }
   if (data.per_capita_supply_chart) {
-    renderBarChart("perCapitaSupplyChart", data.per_capita_supply_chart, { unit: "toe/person", color: "#5CB8AB" });
+    renderBarChart("perCapitaSupplyChart", data.per_capita_supply_chart, { unit: "toe/person", color: PALETTE.teal });
   }
   if (data.capacity_chart) {
     renderStackedChart("capacityChart", data.capacity_chart, null, { unit: "GW", legendPosition: "right" });
   }
   if (data.demand_electrification_chart) {
-    renderBarChart("demandElectrificationChart", data.demand_electrification_chart, { unit: "%", color: "#8B7FD4" });
+    renderBarChart("demandElectrificationChart", data.demand_electrification_chart, { unit: "%", color: PALETTE.cyan });
   }
   if (data.import_cost_chart) {
     renderStackedChart("importCostChart", data.import_cost_chart, null, { unit: "Billion INR", legendPosition: "right" });
@@ -1207,6 +1633,16 @@ function applyResult(data) {
   // took longer than the last timer left its charts uncorrected, overflowing
   // the page sideways.
   requestAnimationFrame(resizeChartsToContainers);
+
+  // ...and re-fit, because this call is what puts the Insights panel's content
+  // on the page. Insights is a Custom Pathways column now, so its height is
+  // part of the deck's height and therefore part of what fitUiScale measures —
+  // but the panel is empty until the first /set_scenario response lands, which
+  // is after the load-time fit has already run. The result was a page that
+  // settled 16px past the bottom of the window on first paint and only came
+  // right once a tab was clicked. Not a loop: the fit changes the zoom, and
+  // the zoom does not change what renderInsights emits.
+  requestAnimationFrame(() => fitUiScale());
 }
 
 /* ---------- Tab switching ---------- */
@@ -1216,14 +1652,13 @@ document.querySelectorAll(".pill-tab[data-view]").forEach((tab) => {
     tab.classList.add("active");
     document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
     document.getElementById("view-" + tab.dataset.view).classList.add("active");
-    // The Pathway Impact/Insights rail is hidden on Energy Flows only, so
-    // the Sankey — the one view that actually wants the extra width — gets
-    // the room instead. Grid columns aren't like flex siblings: hiding the
-    // rail item alone would leave its 280px column reserved but empty, so
-    // .rail-hidden also collapses .page-grid down to a single column.
+    // Insights used to be hidden on Energy Flows, because it sat in a column
+    // beside the charts and the Sankey is the one view that really wants that
+    // width. It lives in the Custom Pathways band now, where it takes space
+    // no chart was using — so it stays visible on every tab, including this
+    // one. It also reads better there: it describes the pathway, and the
+    // pathway controls are in that band.
     const isEnergyFlows = tab.dataset.view === "energy-flows";
-    document.getElementById("pathway-rail").hidden = isEnergyFlows;
-    document.querySelector(".page-grid").classList.toggle("rail-hidden", isEnergyFlows);
     if (isEnergyFlows || tab.dataset.view === "emissions") {
       ensureDeferredData();
     }
@@ -1271,22 +1706,60 @@ document.querySelectorAll(".lg-subcat-row").forEach((row) => {
     paintLever(lever, level, max);
     leverIds.forEach((id) => setLeverLevel(id, level));
     updateAllSubcatQuickButtons();
-    updateAllGroupAvgs();
-    document.querySelectorAll(".cdh-pathway-btn").forEach((b) => b.classList.remove("active"));
+    // Re-derive the pathway readout from the levers immediately, rather than
+    // blanking the preset control and waiting for the recalc to come back:
+    // dragging a lever to the level the preset already had leaves the vector
+    // ON that preset, and eagerly clearing it claimed a custom pathway that
+    // the very next response then contradicted. matchingPreset() answers this
+    // from the hidden inputs, which are already up to date on this line.
+    updatePathwayName();
     scheduleRecalc();
   });
   input.addEventListener("pointerdown", () => lever.classList.add("is-dragging"));
   window.addEventListener("pointerup", () => lever.classList.remove("is-dragging"));
 });
 
-/* ---------- Lever tooltip: hovering/focusing a lever that carries
-   data-descs (sidebar.py only sets these for single-lever rows — see its
-   own comment) shows its CURRENT value's own Control-sheet ambition note,
-   re-reading data-descs on every drag so the tooltip tracks the thumb
-   instead of freezing on whatever level was under the pointer at hover
-   start. One shared floating box repositioned per lever, same
-   position:fixed + measured-rect technique the Sankey's own tooltip
-   uses, rather than one tooltip element per lever. ---------- */
+/* ---------- Lever tooltip -------------------------------------------------
+   Hovering or focusing a lever row shows ONE popup, and it stays inside the
+   Custom Pathways band. Two shapes, matching the two kinds of row:
+
+   - A row that drives ONE Control-sheet lever (every flyout row, and the
+     single-lever deck rows like "Growth of the Economy") shows that lever's
+     own name, where it sits, and the Control sheet's ambition note for that
+     level, straight out of data-descs.
+
+   - A BUNDLED deck row ("Buildings · 6") describes ITSELF: what this one
+     control does and where it currently sits. It used to dump one line per
+     member lever, each with that lever's own note — six or eight notes in a
+     panel tall enough to cover the charts, which is what the user rejected on
+     sight, and rightly: hovering a control should say what THAT control does.
+     The per-lever notes are not lost, they moved to where they belong — open
+     the row and hover any lever in the flyout, which is the single-lever case
+     above. So the deck answers "what does this row do" and the flyout answers
+     "what does this lever do", instead of the deck trying to answer both.
+
+   The state line is not invented here: updateLeverRow() already derives the
+   row's three honest states (all on one level / each as high as it goes /
+   genuinely out of step) and leaves the sentence on data-row-state.
+
+   PLACEMENT — the popup is clamped to `.control-deck-h`, never the window.
+   It is a control's tooltip and the controls are all in that band, so it has
+   no business over the charts; before this it was positioned against the
+   viewport alone and a tall one ended up top-left of the page, next to
+   nothing it described. Preferred above the control, below it when that would
+   cross the band's top edge, and clamped inside the band either way.
+
+   Coordinates are converted real px -> logical px. `body` carries
+   `zoom: var(--ui-scale)`, and this box is a `position:fixed` child of body,
+   so a length set here is multiplied by the zoom on the way to the screen,
+   while getBoundingClientRect() reports post-zoom real pixels. Mixing the two
+   put the popup progressively further off-target the further --ui-scale was
+   from 1 — the same trap documented in sizeChartToContainer(). offsetWidth /
+   offsetHeight are already logical, so they need no conversion.
+
+   Re-rendered on every `input` so the text tracks the thumb while dragging
+   instead of freezing on whatever level was under the pointer when the hover
+   started. ---------- */
 (function initLeverTooltip() {
   const tip = document.createElement("div");
   tip.className = "lever-tooltip";
@@ -1296,51 +1769,131 @@ document.querySelectorAll(".lg-subcat-row").forEach((row) => {
 
   let shown = null;
 
-  function render(lever) {
-    if (!lever.dataset.descs) return false;
-    const input = lever.querySelector(".lg-lever-input");
-    const descs = JSON.parse(lever.dataset.descs);
-    const desc = descs[input.value];
-    if (!desc) { tip.hidden = true; return false; }
-    tip.innerHTML = "";
-    const strong = document.createElement("strong");
-    strong.textContent = `Ambition level ${input.value}: `;
-    tip.appendChild(strong);
-    tip.appendChild(document.createTextNode(desc));
-    tip.hidden = false;
+  const descsOf = (el) => {
+    try { return el && el.dataset.descs ? JSON.parse(el.dataset.descs) : {}; }
+    catch { return {}; }
+  };
 
-    const r = lever.getBoundingClientRect();
-    const tipW = tip.offsetWidth;
-    let left = r.left + r.width / 2 - tipW / 2;
-    left = Math.max(10, Math.min(left, window.innerWidth - tipW - 10));
-    const top = Math.max(10, r.top - tip.offsetHeight - 10);
-    tip.style.left = Math.round(left) + "px";
-    tip.style.top = Math.round(top) + "px";
+  function part(cls, text) {
+    const n = document.createElement("div");
+    n.className = cls;
+    n.textContent = text;
+    return n;
+  }
+
+  /* The row's own name, in full. Worth a line of its own precisely because
+     the row can't always show it: `.lg-subcat-title` and `.lg-flyout-name`
+     both ellipsise, and the flyout's names are cut hard at the rail's width
+     ("Growth of fl…"). The trailing " · 6" count is stripped — it is a
+     property of the row, and the head says the count in words already. */
+  function nameOf(row) {
+    const t = row.querySelector(".lg-subcat-title, .lg-flyout-name");
+    return t ? t.textContent.replace(/\s*·\s*\d+\s*$/, "").trim() : "";
+  }
+
+  /* One Control-sheet lever: what this lever is set to, and what that means. */
+  function renderSingle(row, lever) {
+    const input = lever.querySelector(".lg-lever-input");
+    const note = descsOf(lever)[input.value];
+    tip.innerHTML = "";
+    tip.appendChild(part("lever-tip-head", nameOf(row)));
+    tip.appendChild(part("lever-tip-state", "Level " + input.value + " of " + lever.dataset.max));
+    // 7 of the 49 levers have columns H-K empty on the Control sheet and 4
+    // more have gaps at some levels, so a missing note is normal and is not a
+    // reason to show nothing: the name and the level are still the answer to
+    // "what am I hovering", and a control that silently refuses to respond
+    // reads as broken. (The old code returned false here and rendered
+    // nothing at all.)
+    if (note) tip.appendChild(part("lever-tip-note", note));
     return true;
   }
-  function show(lever) { shown = render(lever) ? lever : null; }
+
+  /* A bundled row: what this ONE control does, not what its members say. */
+  function renderGroup(row, lever, count) {
+    tip.innerHTML = "";
+    tip.appendChild(part("lever-tip-head", nameOf(row)));
+    tip.appendChild(part("lever-tip-state", lever.dataset.rowState || ""));
+    tip.appendChild(part("lever-tip-sub", "One control for all " + count + " levers in this group."));
+    tip.appendChild(part("lever-tip-hint", "Open the row to set each lever on its own."));
+    return true;
+  }
+
+  function render(row) {
+    const lever = row.querySelector(".lg-lever");
+    if (!lever) return false;
+    // A flyout row carries data-lever-ids too, with exactly one id — so the
+    // test is the COUNT, not the presence of the attribute.
+    const ids = (row.dataset.leverIds || "").split(",").filter(Boolean);
+    const ok = ids.length > 1 ? renderGroup(row, lever, ids.length) : renderSingle(row, lever);
+    tip.hidden = !ok;
+    if (!ok) return false;
+    place(lever);
+    return true;
+  }
+
+  function place(lever) {
+    const scale = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue("--ui-scale")) || 1;
+    const px = (v) => v / scale;               // real px -> logical px
+    const a = lever.getBoundingClientRect();
+    const deck = document.querySelector(".control-deck-h");
+    const band = deck ? deck.getBoundingClientRect()
+                      : { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth };
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    const PAD = 10;
+
+    const minL = px(band.left) + PAD, maxL = px(band.right) - w - PAD;
+    let left = px(a.left + a.width / 2) - w / 2;
+    // Math.max on the ceiling too: on a narrow window the band can be
+    // narrower than the popup, and a max below its own min would otherwise
+    // pin the box off the left edge.
+    left = Math.min(Math.max(left, minL), Math.max(minL, maxL));
+
+    const minT = px(band.top) + PAD, maxT = px(band.bottom) - h - PAD;
+    let top = px(a.top) - h - 10;
+    if (top < minT) top = px(a.bottom) + 10;
+    top = Math.min(Math.max(top, minT), Math.max(minT, maxT));
+
+    tip.style.left = Math.round(left) + "px";
+    tip.style.top = Math.round(top) + "px";
+  }
+
+  function show(row) { shown = render(row) ? row : null; }
   function hide() { tip.hidden = true; shown = null; }
 
+  // Bound to the ROW, not to the lever alone: the name, the count and the
+  // chevron are all part of the same control, and hovering a truncated label
+  // to find out what it says is the obvious move. It also replaces the
+  // native `title` that used to sit on the label (sidebar.py) — one popup for
+  // the whole row rather than the browser's box over the name and ours over
+  // the track.
   document.addEventListener("mouseover", (e) => {
-    const lever = e.target.closest(".lg-lever[data-descs]");
-    if (lever) show(lever);
+    const row = e.target.closest(".lg-subcat-row");
+    if (row) show(row);
   });
   document.addEventListener("mouseout", (e) => {
-    const lever = e.target.closest(".lg-lever[data-descs]");
-    if (lever && !lever.contains(e.relatedTarget)) hide();
+    const row = e.target.closest(".lg-subcat-row");
+    if (row && !row.contains(e.relatedTarget)) hide();
   });
   document.addEventListener("focusin", (e) => {
-    const lever = e.target.closest(".lg-lever[data-descs]");
-    if (lever) show(lever);
+    const row = e.target.closest(".lg-subcat-row");
+    if (row) show(row);
   });
   document.addEventListener("focusout", (e) => {
-    if (e.target.closest(".lg-lever[data-descs]")) hide();
+    if (e.target.closest(".lg-subcat-row")) hide();
   });
-  // Dragging fires `input` on the same lever repeatedly — re-render the
-  // still-open tooltip so its text/position track the thumb live.
+  // Dragging fires `input` on the same row repeatedly — re-render the still-
+  // open popup so its text and position track the thumb live. A bundled row
+  // needs this because its state line is rewritten by updateLeverRow() as the
+  // row is dragged.
   document.addEventListener("input", (e) => {
-    if (shown && e.target.closest(".lg-lever") === shown) render(shown);
+    if (shown && e.target.closest(".lg-subcat-row") === shown) render(shown);
   });
+  // The rail slides the rows sideways, so a popup left open across the
+  // animation would be pointing at nothing.
+  document.addEventListener("click", (e) => {
+    if (e.target.closest(".lg-expand-btn, .lg-subcat-title, .lg-flyout-close")) hide();
+  }, true);
   window.addEventListener("scroll", hide, true);
 })();
 
@@ -1483,7 +2036,7 @@ async function ensureDeferredData() {
   deferredCacheKey = sig;
   if (data.sankey) sankeyDataByYear = data.sankey;
   if (data.emissions_by_sector_chart) {
-    renderStackedChart("emissionsBySectorChart", data.emissions_by_sector_chart, null, { unit: "Million tonne CO2e", legendPosition: "right" });
+    renderStackedChart("emissionsBySectorChart", data.emissions_by_sector_chart, null, { unit: "Mt CO₂e", legendPosition: "right" });
   }
   if (sankeyDataByYear && document.getElementById("view-energy-flows").classList.contains("active")) {
     renderSankey(sankeyDataByYear[currentSankeyYear]);
@@ -1499,6 +2052,12 @@ document.querySelectorAll(".year-btn").forEach((btn) => {
   });
 });
 
+/* The five category colours. These are the ANCHORS the chart palette is built
+   from (see PALETTE at the top) and are deliberately left exactly as they are:
+   the diagram is the one place where all five appear together and none of them
+   are adjacent bands, so it needs no lightness spreading. The chart palette's
+   copies differ by at most ±0.08 lightness — near-identical for amber and red,
+   a little deeper for teal and violet. */
 const SANKEY_NODE_COLORS = {
   source: "#22d3a8", tech: "#4f9bf2", carrier: "#f2b84b", loss: "#e05263", demand: "#7b6ef6",
 };
@@ -1625,7 +2184,8 @@ function renderSankey(yearData) {
     .attr("y", (d) => (d.y0 + d.y1) / 2)
     .attr("dy", "0.35em")
     .attr("text-anchor", (d) => (d.x0 < width / 2 ? "start" : "end"))
-    .attr("font-size", 11)
+    .attr("font-size", TYPE.label.size)
+    .attr("font-family", FONT_SANS)
     .attr("fill", "var(--ink)")
     .text((d) => d.name);
 
@@ -1675,7 +2235,7 @@ function renderSankey(yearData) {
     .on("mousemove", (event, d) => {
       const src = throughput(d.source);
       const share = src ? (d.value / src) * 100 : 0;
-      showTip(event, "<b>" + d.source.name + " → " + d.target.name + "</b><br>" +
+      showTip(event, "<b>" + d.source.name + " " + ARROW_SVG + " " + d.target.name + "</b><br>" +
         d.value.toFixed(2) + " Mtoe<br>" + share.toFixed(0) + "% of " + d.source.name);
     })
     .on("mouseenter", (event, d) => highlight(new Set([d]), new Set([d.source, d.target])))
