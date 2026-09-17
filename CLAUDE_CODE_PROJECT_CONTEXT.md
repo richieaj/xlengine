@@ -4375,3 +4375,480 @@ Also: `tools/devtools/cdp_driver.js` hardcodes
 is the **32-bit path**, `C:\Program Files (x86)\Google\...`, so the driver dies
 with `ENOENT` on spawn. Worked around with a scratchpad copy this session; the
 driver could take a candidate list if it bites again.
+
+---
+
+## Session Notes (2026-09-17 / 18) — Switched to the CRM workbook; found and fixed a compiler bug that silently deleted 87 formulas; added an Excel-parity gate and parse-versioned the model cache; built the Critical Minerals tab. **The parity tool is new and is the thing to reach for first when a number looks wrong — read "Two claims, two tools" below.**
+
+This session did four things: pointed the backend at the CRM-integrated
+workbook, fixed a compiler bug that had been latent since the beginning, built
+the tooling that would have caught it, and shipped the Critical Minerals tab.
+It also ends with an **open data-quality finding** about the perovskite rows of
+the mineral-intensity matrix — see the last section before trusting any
+perovskite-derived mineral figure.
+
+### 1. The workbook moved to `IESS2047_CRM.xlsx`
+
+`ui/app.py:30` is now:
+
+```python
+WORKBOOK_PATH = os.environ.get(
+    "IESS_WORKBOOK",
+    r"D:\ACPET\CRM and IESS integration\IESS2047_CRM.xlsx",
+)
+```
+
+Modelled on the existing `IESS_CACHE_DIR` pattern at `app.py:208`. 71 sheets,
+439,623 non-empty cells, ~9.3 MB, cold compile ~37-39 s.
+
+**The default is an absolute path that exists on no other machine.** This is a
+known, deliberate, unresolved decision — it keeps the current workflow working
+and breaks for anyone else until they set `IESS_WORKBOOK`. A proposal to fall
+back to a repo-relative `workbook/` path first was **rejected during
+implementation**: `workbook/` contains the *old* `IESS2047_Version_3.0.xlsx`, so
+that ordering would silently switch the app back to the previous model without
+any visible signal. If this is revisited, that trap is the thing to design
+around.
+
+`tools/golden_master.py` and `tools/precompute_pathways.py` inherit the path for
+free (both `import app`). Four scripts under `xlcompiler/` still carry their own
+hardcoded paths (`run_full.py:9`, `count_flows.py:7`, `demo_app.py:22`,
+`demo_lever_propagation.py:26`), two of them pointing at a `D:/2047-old/` tree
+that no longer exists.
+
+All 1,301 files in `cache/pathways/` were deleted at the switch. Not optional
+housekeeping: `WORKBOOK_FP` (a content hash of the xlsx) is part of every cache
+key, so entries keyed to the old workbook could never be hit again.
+
+### 2. The bug: openpyxl returns array formulas as an object, not a string
+
+`xlcompiler/compiler/workbook_model.py:143` decided what was a formula with:
+
+```python
+is_formula = isinstance(c.value, str) and c.value.startswith("=")
+```
+
+openpyxl returns an **array formula** as an `ArrayFormula` object carrying
+`.ref` and `.text`, not as a string. So the test returned `False`, the cell was
+filed as *literal data*, and the "data" stored in it was the Python object
+itself:
+
+```
+C42: formula=None, value=<openpyxl.worksheet.formula.ArrayFormula object at 0x...>
+```
+
+The formula was never handed to the evaluator. It never ran.
+
+**Why it was silent, which is the whole lesson.** The dead cell fed
+`=SUM(C46:C53)`. Summing a non-numeric object contributes 0 rather than
+raising. So rows 46-53 (PV technology shares) went dead, row 54 (the sheet's own
+`Check: Sum of Shares (should = 1)`) read **0**, row 58 (`=C$38*C46`, capacity ×
+share) read **0.0**, and rows 70-87 (mineral demand) read **0.0**. No exception,
+no `#REF!`, **zero engine gaps**. Every test that asks "did it error?" passed.
+The sheet returned confident zeros.
+
+**Scale.** 88 array-formula cells in the CRM workbook, 87 of them on
+`Critical Minerals` (rows 42, 43, 46-53, 70-87 — the entire technology-mix and
+mineral-demand engine); the 88th is cosmetic, on `Index Page`. The old
+`IESS2047_Version_3.0.xlsx` contains **exactly one**, also on Index Page. So the
+bug had been in the compiler since the start with nothing load-bearing to break.
+
+**Provenance — nobody did anything unusual in Excel.** The sheet XML shows
+`AppVersion 16.0300` with `cm="1"` dynamic-array metadata, all 87 refs
+single-cell (`ref="C42"`), no `aca="1"`. Someone typed an ordinary `INDEX(...)`
+in Excel 365 and its dynamic-array engine saved it as an array formula. There
+are no curly braces and nothing visible in the UI. This is invisible from inside
+Excel and will happen again on any new sheet authored in a current Excel.
+
+**The fix** unwraps to `.text` before the string test. All 87 refs are
+single-cell, so no spilled-range handling is needed; a multi-cell `ref` would
+need the result broadcast across the range, and the comment at the fix says so.
+
+**Verification.** `tools/golden_master.py verify --profile quick --allow-new`
+against the **old** workbook passed identically before and after the change —
+zero numeric drift. (Its 10 apparent "failures" before this session were one
+*added* output key, `emissions_2047_total`, not drift; `--allow-new` is exactly
+the flag for that and had simply never been used.)
+
+### 3. How it was found — method, not luck
+
+Worth recording, because the same method generalises.
+
+The first check passed: the sheet was in the model (1,100 cells, 471 formulas),
+every formula evaluated, zero exceptions, zero `#REF!`. On any "is it working?"
+standard that is a green result.
+
+What broke it open was that the first ten sampled values were all `0.0`. One
+zero is unremarkable; ten in a row on a sheet that computes mineral demand is a
+smell.
+
+An `.xlsx` stores **two** things per formula cell: the formula, and the value
+Excel computed last time it saved. The compiler already loads both
+(`data_only=False` and `data_only=True` passes, `workbook_model.py:114-115`).
+That is a free oracle. Comparing all 471 live values against Excel's own saved
+values gave 263 matches and 162 mismatches — and the mismatches clustered on
+rows 44, 54, 58-87 rather than scattering, which means a common cause. Row 54
+being the sheet's own validation row reading 0 instead of 1 pointed straight at
+the share block, and dumping rows 42-53 showed `formula=None` beside a
+`<ArrayFormula object>` value.
+
+**The generalisable rule: "no errors" is not a passing grade for this engine;
+"matches Excel's own saved values" is.** That is now mechanised — see next.
+
+### 4. `tools/excel_parity.py` (new) — the correctness gate
+
+Walks every cell where `formula is not None and value is not None`, across all
+sheets, evaluates it, and compares against Excel's cached value. Full workbook:
+392,563 cells in ~28 s (one full-graph pass; the evaluator memoises).
+
+**Two claims, two tools — do not merge them.** `golden_master.py` asserts
+*engine-now == engine-at-capture*. It is a **regression** gate and structurally
+cannot catch a formula that was always wrong: the bad zeros were stable, so a
+golden baseline would have recorded them and stayed green forever.
+`excel_parity.py` asserts *engine == Excel*. Different claim, different failure
+caught. This is the mechanised form of the warning already at the top of this
+document under Current Validation Status.
+
+**Engine state is the correctness crux: it runs with ZERO overrides.** The
+evaluator then computes purely from the workbook's saved constants, which is
+exactly the state Excel was in when it wrote those cached values, so a
+difference is attributable to the engine. Applying lever levels makes downstream
+cells differ *legitimately* — this was observed as a false positive on a
+capacity row before the tool existed. Do **not** "helpfully" add
+`golden_master._saved_mix()` here; those levels are already what the formulas
+read off the sheet. `--as-app` is a documented escape hatch that applies the two
+`ui/app.py` startup switches and prints a warning that differences under it are
+not evidence of an engine bug.
+
+**Outcome taxonomy** (defect tier gates the exit code; info tier never does):
+
+| Category | Meaning | Tier |
+|---|---|---|
+| `ZERO_COLLAPSE` | Excel non-zero, engine exactly 0 | defect — the headline case, the signature of this bug class |
+| `TYPE_MISMATCH` | Excel numeric, engine `None`/str/object | defect — catches an ArrayFormula-shaped regression |
+| `NUMERIC_MISMATCH` / `SIGN_FLIP` | outside tolerance / signs differ | defect |
+| `ENGINE_GAP` | engine returned the `ERROR` sentinel | defect |
+| `EXCEL_ERROR` | Excel itself stored `#VALUE!`, `#REF!`, … | info — a **workbook** defect, not ours |
+| `CIRCULAR_SEEDED`, `BOOL_COERCION`, `STRING_WHITESPACE`, `SKIPPED` | | info |
+
+Three traps handled explicitly in `classify()`, all of which would silently
+produce false passes:
+
+1. **The `ERROR` sentinel** (`evaluator.py:36-46`) defines `__bool__ -> False`
+   and `__float__ -> 0.0`. Any truthiness or `== 0` test files an engine gap as
+   a legitimate zero — the same silent-zero failure one level up. Tested first
+   and with `is`.
+2. **Booleans before numerics** — `True == 1` in Python would otherwise let a
+   bool/int mix pass the numeric comparison.
+3. **Both tolerances are mandatory.** Values span 0.008 (technology shares) to
+   4.7e8 (mineral demand in kg). Relative-only is meaningless near zero,
+   absolute-only meaningless at 1e8. Match iff
+   `abs(a-b) <= max(abs_tol, rel_tol * max(abs(a), abs(b)))`.
+
+**The tool was verified by making it fail.** With the ArrayFormula fix
+temporarily reverted via `git stash`, `--sheet "Critical Minerals"` reported
+**171 `ZERO_COLLAPSE`**; with the fix in place, **0**. A guard that has never
+failed is not a guard. (Note the dropped cells themselves become *invisible* to
+the tool — `formula is None` excludes them from comparison — so it is their
+dependents that flag. It still catches it, via the cascade.)
+
+**`calcMode="manual"` — read every parity report through this.** Both IESS
+workbooks are saved with manual calculation, so Excel's cached values are only
+as fresh as the last F9. A `NUMERIC_MISMATCH` may mean the *workbook* is stale,
+not the engine wrong. The tool detects this from the raw OOXML and prints a
+loud warning. `ZERO_COLLAPSE` and `TYPE_MISMATCH` stay meaningful regardless —
+a dropped formula is a dropped formula. **For a trustworthy run: open the
+workbook in Excel, Ctrl+Alt+F9, save, re-run.**
+
+**No parity baseline is committed, deliberately.** One was captured (5.1 MB,
+114,908 "known defects") and then deleted: a waiver list built on a stale oracle
+is a mute button, and it would have declared the workbook clean while 114,908
+cells disagreed with Excel. `--baseline` support exists (per-cell keys *plus* a
+formula hash, so an edited formula at a known-bad address lapses its waiver);
+capture one **after** a full recalculation, not before.
+
+Sensitivity of the headline numbers to tolerance, all pre-recalculation:
+109,905 `NUMERIC_MISMATCH` at rel-tol 1e-6, 100,340 at 1e-4, **1,035 at 1e-2**.
+So ~99% of them sit between 0.01% and 1%, dominated by `Grid_Balance_V2`
+(179,900 cells compared). `Grid balance` separately holds 88,227 cells where
+**Excel itself** stored an error value.
+
+Supersedes `xlcompiler/count_flows.py` (one sheet, one column, ~120 rows, fixed
+0.5 absolute tolerance, stale hardcoded path); that file now carries a
+SUPERSEDED docstring and is kept only because the "78/78 flow edges" headline
+came from it.
+
+### 5. The `.compiled.pkl` cache was invalidated by mtime alone — a latent bug that would have hidden the fix
+
+`WorkbookModel.load()` decided staleness purely by comparing the pickle's mtime
+against the xlsx's. The pickle recorded nothing about the **code** that produced
+it. So the ArrayFormula fix did **not** invalidate an existing cache: on any
+machine with a warm pickle the fix is a no-op, the 87 cells stay mis-filed, and
+`excel_parity.py` would report green against a stale parse. The fix and its
+validator would both have been defeated by the same cache. It only worked here
+because the pkl had been deleted by hand.
+
+Now the cache filename carries a fingerprint derived from the parsing code:
+
+```python
+_PARSE_FP = sha256(
+    inspect.getsource(WorkbookModel._parse)
+  + inspect.getsource(WorkbookModel._load_tables_from_zip)
+  + sorted field names of CellModel / TableModel / NameModel
+)[:10]
+cache_path = f"{path}.compiled.{_PARSE_FP}.pkl"
+```
+
+- **Filename, not a field inside the pickle** — checking a field requires
+  `pickle.load()` first, and unpickling is precisely the unsafe act across a
+  schema change. A filename check decides staleness without touching the stale
+  bytes, and lets versions coexist so branch-switching doesn't force a reparse
+  each way.
+- **Derived, not hand-bumped** — a `_PARSE_VERSION` constant fails on exactly
+  the class of change that motivated this: a two-line parsing fix nobody would
+  think to version. Same principle as `OUTPUT_FP` in `ui/app.py:284-286`.
+- Dataclass **field names** are fingerprinted, not their source, so a docstring
+  edit doesn't churn the cache while an added field does.
+- The mtime check is **kept as well** — it answers "did the workbook change?",
+  which the code fingerprint does not.
+- Stale siblings are pruned after a successful write; `inspect.getsource` is
+  wrapped for frozen/`.pyc`-only environments with `_PARSE_VERSION_FALLBACK`.
+
+Accepted trade-off: a comment or whitespace edit inside `_parse` invalidates
+spuriously, costing one ~39 s reparse. The alternative is silently stale parse
+semantics.
+
+Verified: legacy `.compiled.pkl` ignored → full reparse 39.3 s → new
+fingerprinted pickle written, legacy pruned → second load 0.8 s cache hit, with
+`C42`'s formula intact through the pickle round-trip.
+
+### 6. `tools/golden_master.py` — `--label` and a cross-workbook guard
+
+`tests/golden/full/` is documented in this file as an irreplaceable baseline
+captured from the original workbook. Pointing the engine at a different workbook
+and running `capture` would have silently redefined what "correct" means, and
+the result looks identical on disk. So:
+
+- `--label` suffixes the baseline directory (`--label crm` →
+  `tests/golden/quick-crm/`). `tests/golden/quick/` and `full/` are untouched.
+- `_meta.json` now records `workbook` and `workbook_fp`; `verify` warns loudly
+  when the baseline's fingerprint doesn't match the running workbook, instead of
+  emitting a wall of numeric diffs that read as a regression.
+- **Caveat:** the guard only fires for baselines captured *after* this change.
+  The legacy `tests/golden/quick/` has no `workbook_fp`, so verifying it against
+  the CRM workbook still produces the confusing wall.
+
+`tests/golden/quick-crm/` is the CRM baseline (10 vectors, engine gaps 0).
+
+### 7. A workbook bug the user fixed mid-session — and a correction to my own reporting
+
+`Critical Minerals!C46` had been overwritten with `=B44+C89` — adding the *text
+label* in B44 ("Interpolation Fraction") to a year. Excel flagged it honestly as
+`#VALUE!`; the engine coerced the text to 0 and returned `2025.0`, poisoning
+column C downstream (share check read 2025.441 instead of 1; mono-Si capacity
+65,026 instead of ~18). Every other cell in the block follows the pattern
+`=INDEX($C90:$L90,C$41)+C$44*(INDEX($C90:$L90,MIN(C$41+1,10))-INDEX($C90:$L90,C$41))`.
+
+The user fixed it in Excel at 23:04. **I continued to report it as unfixed from
+memory instead of re-reading the file**, and only caught it when a cold rebuild
+(forced by deleting the pkl) picked up the edited workbook and the raw XML
+showed `<f t="array" ref="C46">INDEX($C90:$L90,C$41)+...</f><v>0.559</v>`. The
+two fixes were interdependent and neither alone would have shown anything: the
+Excel edit was invisible because `C46` is itself an array formula, which the
+compiler was dropping regardless.
+
+Note the engine/Excel divergence this exposed, still open: **Excel raises
+`#VALUE!` on text-in-arithmetic where the engine coerces to 0.** That is the
+same silent-degradation class as the main bug, from the opposite direction.
+
+### 8. Critical Minerals tab built (`ui/pages/critical_minerals.py`)
+
+The sheet models exactly one chain: utility solar PV capacity (GW) → a mix
+across 8 PV technologies → mineral demand (tonnes) for 18 minerals, via a
+hardcoded intensity matrix in t/GW at `D21:U28`.
+
+**Sheet map** (columns D..I = 2022..2047, matching `CHART_YEAR_LABELS`; the
+sheet's column C is 2020 and is dropped by never listing it):
+
+| Rows | Content |
+|---|---|
+| 16 | mineral names, D16:U16 (18 of them) |
+| 21-28 | mineral-intensity matrix, 8 techs × 18 minerals, t/GW — **all 54 non-blank cells are hand-typed literals, zero formulas** |
+| 38 | total solar PV capacity (GW) |
+| 41-44 | interpolation bracket index / lower year / upper year / fraction |
+| 46-53 | technology-mix shares; row 54 is the sheet's own sum check |
+| 58-65 | capacity by technology (GW); row 66 total check |
+| 70-87 | mineral demand (tonnes), one row per mineral |
+| 88-97 | "clean interpolation source" — the share table Station 2 INDEXes into |
+| V..BQ | **DEAD BLOCK** — an abandoned circularity/recycling module. `AM21:AW28` reference row 5, which does not exist on this sheet, so every cell evaluates to 0; the `AY21:BP34` "recycling rate" table is the same constant broadcast across all 18 mineral columns. Nothing downstream reads it. **Do not surface any of it — it looks like data and is not.** |
+
+**Lever sensitivity — the one thing to know.** `Control!E13` (Solar
+Photovoltaic) is the **only** lever that moves this sheet. Rooftop solar, CSP,
+wind and everything else move it by exactly zero, because the sheet models
+utility solar PV only. Response is exactly linear in capacity (mix and
+intensities are constants).
+
+**This works only because of the two startup switches at `ui/app.py:52-54`**
+(`Target Year Input!E10 = 1`, `IESS V3 Main Sheet!E12 = 0`). They open gates in
+`IV.a` that otherwise pin the capacity trajectory to a hardcoded CAGR in
+`User-defined drivers`. In the workbook's own saved state the lever is inert. An
+exploration pass that measured sensitivity without those overrides concluded
+"nothing moves this sheet", which is true of the raw workbook and **false of the
+dashboard** — do not repeat that mistake. **Do not "tidy away" those two lines;
+the tab goes dead.**
+
+Verified numbers, Solar PV lever 1 → 4: 2047 aluminium **2,982,499 →
+7,678,749 t**, capacity **456.8 → 1,176.1 GW**.
+
+**Chart design — why a ranked bar and not the house stacked area.** 2047 demand
+spans **7.8 orders of magnitude** (aluminium 2,982,499 t; lithium 0.046 t). A
+stacked area would be 100% Al+Cu+Si with everything else an invisible hairline.
+A log axis fixes the spread but **cannot plot zero**, and seven minerals are
+exactly 0 in 2022 (Graphite, W, Mo, Ni, Ti, Zn, Li — they appear only once
+perovskite enters after 2032), which rules out a grouped 2022-vs-2047 bar. Hence
+a **single-year ranked horizontal bar on a log axis**. The growth story that a
+snapshot would lose is carried by **bar colour**: the seven zero-in-2022
+minerals render violet.
+
+New payload shape, deliberately not the house `{years, series, total}`:
+`{"labels": [...], "values": [...], "emergent": [bool...], "unit": "t"}`.
+
+`renderRankedBarChart` (`dashboard.js`, beside `renderBarChart`) is new because
+the existing bar renderer cannot be reused: it takes `chartData.years` as
+labels, titles the x-axis "Year", and pins a linear scale to `min: 0`. Two
+details in it are load-bearing:
+
+- **Value labels are printed at every bar end** (`rankedValueLabelPlugin`). On a
+  log axis a bar twice as long is not twice the value, so the printed number is
+  the only honest statement of quantity; the bar shows rank.
+- **Ticks are restricted to decades.** Chart.js's log scale otherwise emits
+  every "nice" value it can fit (0.01, 0.03, 0.06, 0.08, 0.1, 0.2 …), which
+  collides into an unreadable smear across eight decades.
+
+Not deferred (`DEFERRABLE_KEYS` untouched): ~70 floats, and the tab's
+credibility rests on responding instantly to the one lever it has — routing it
+through `/deferred` would add a round trip to exactly the interaction it exists
+to demonstrate.
+
+`UPCOMING_TABS` in `ui/pages/tabs.py` is now an empty set (all nine tabs built);
+kept rather than deleted, since "a tab landed before its model" is a recurring
+state worth a marker.
+
+**Two things were built and then removed at the user's request**, recorded so
+they aren't rebuilt by accident:
+
+1. A **KPI stat strip** (PV capacity 2047, bulk minerals, silver, Ga+In+Te+Ge).
+   Its `compute_crm_kpis` and `renderCrmKpis` are gone. It also needed a scoped
+   4-column override of `.stat-row`, whose shared grid is hardcoded to three
+   columns (`1.5fr 1fr 1fr` with `.stat-stack { display: contents }`) — a
+   4th card wraps to its own row without it.
+2. A **scope/method paragraph** (`.view-note`) stating the solar-PV-only scope
+   and the linearity assumption. The class and its CSS are gone. That context
+   now lives in the module docstring of `critical_minerals.py`, because it still
+   matters when reading the numbers.
+
+**Layout is pixel-matched to Energy Security** by request, and *measured* rather
+than eyeballed — a scratchpad CDP script probes both tabs and diffs their
+geometry box by box. View, grid, both cards (917×486), both chart wraps
+(891×416), canvas sizes (890×416), footer bottom (981) and document scroll
+height (985) are identical, which is what puts the lever deck in the same place
+on both tabs. The one-line `.card-sub` is kept for the same reason: Energy
+Security has one, and dropping it would make these cards ~17 px shorter.
+
+### 9. OPEN FINDING — the perovskite rows of the intensity matrix are on a different scale
+
+Raised by the user noticing that lithium demand at lever 4 is **0.119 t** — 119
+kg for ~1,176 GW of solar. The arithmetic is correct (`T28` = 0.0024 t/GW ×
+49.396 GW of Perovskite APT) and matches Excel. The input is the problem, and it
+is **not confined to lithium**.
+
+Total material intensity per technology, summing each row of `D21:U28`:
+
+| Technology | Total t/GW | Aluminium t/GW |
+|---|---|---|
+| Monocrystalline Si | 15,820 | 7,200 |
+| Polycrystalline Si | 15,820 | 7,200 |
+| Heterojunction Si | 15,820 | 7,200 |
+| CIGS thin-film | 11,882 | 7,200 |
+| Amorphous Si | 11,998 | 7,200 |
+| CdTe | 12,005 | 7,200 |
+| **perovskite/silicon tandem** | **5.3** | **0** |
+| **Perovskite APT** | **183.7** | **0.9** |
+
+**Aluminium is the tell.** It is structural — frame, racking, junction box — and
+essentially technology-independent. Every established technology says exactly
+7,200 t/GW; Perovskite APT says 0.9 and the tandem says zero. That is an 8,000×
+gap with no physical explanation. The likely cause is that the two perovskite
+rows were sourced from lab-scale literature counting only the active layer, or
+normalised per m²/per module, while rows 21-26 are full balance-of-module
+figures.
+
+**Consequence: the seven "emergent" (violet) minerals are exactly the cohort
+sourced almost entirely from those two rows** — Graphite, Tungsten, Molybdenum,
+Nickel, Titanium, Zinc, Lithium. Their absolute values are not comparable with
+the eleven silicon-derived minerals. Graphite (2,758 t in 2047, the largest of
+them) rests on a single cell, `Q28` = 143.7 t/GW. The silicon-derived figures —
+aluminium, copper, silicon, silver — are internally consistent and unaffected.
+
+Interim mitigation shipped: the ranked chart's caption reads "Violet:
+provisional perovskite inputs" and the tooltip appends "(none in 2022;
+provisional input)". **The real fix is in the workbook** — re-derive rows 27-28
+on the same basis as rows 21-26 — and is a modelling decision, not a code
+change.
+
+### 10. Also still open
+
+- **`Cost - Import + Production` has 224 `ZERO_COLLAPSE`**, and the sheet feeds
+  the Costs tab (rows 25-29 import costs, 83-86 production costs). Several are
+  `INDEX(discount_factors, MATCH(...))` returning 0, which looks like a real
+  engine gap in that lookup path. Not diagnosed. The manual-calc caveat means
+  the split between engine fault and stale cache is not yet known.
+- **`Sector-wise Energy Costs` has 287 `ZERO_COLLAPSE`.**
+- The 2020/2022 columns of Critical Minerals are **backward-extrapolated**: the
+  share source table starts at 2025, so the interpolation fraction is -1.0 for
+  2020 and -0.6 for 2022. Shares still sum to 1 and none go negative, so it is
+  arithmetically safe, but those are observed years being inferred from a
+  projection. Fix = add real 2020/2022 columns to rows 89-97, in Excel.
+- **Do not attempt any workbook edit with openpyxl.** Loading this file already
+  warns that Data Validation and Sparkline extensions are unsupported and will
+  be removed, so a programmatic save would silently destroy them.
+- No `.gitignore` (user's explicit call). 1,621 tracked files, ~83% generated
+  artifacts.
+
+### Environment notes — both known traps bit again
+
+**The stale-Flask trap caught me three times in one session, once nearly
+invalidating a verification.** After removing the KPI strip the page looked
+correct in a screenshot, but two of my own Flask processes were running and the
+*older* one held 5051 — I was screenshotting pre-change code. Caught only
+because a probe reported `statRow: true` against a source file that provably
+had no `.stat-row`.
+
+**Killing by port is not sufficient** — the documented
+`Get-NetTCPConnection -LocalPort 5051` recipe races: if the lookup returns empty
+at that instant, nothing is killed and the old process keeps the socket. What
+worked reliably:
+
+```powershell
+Get-Process python | ForEach-Object { Stop-Process -Id $_.Id -Force }
+Start-Sleep -Seconds 2
+# then confirm the count is 0 before starting a new one
+```
+
+**The Chrome path issue documented in the previous session repeated exactly.**
+`tools/devtools/cdp_driver.js` still hardcodes the 64-bit path; Chrome here is
+at `C:\Program Files (x86)\Google\...`. Worked around again with a scratchpad
+copy taking a candidate list. **This is now the second session to work around
+it — the driver should take a candidate list.**
+
+**PowerShell here-strings break on embedded quotes** in `git commit -m @'...'@`.
+Use `git commit -F <file>` for any multi-line message.
+
+### Commits (branch `ui/viewport-fit-eucalc-palette-sankey`)
+
+| SHA | What |
+|---|---|
+| `b22e9d5` | Working tree pushed as-is (UI refresh, fonts, logos, 1,301 cache files) |
+| `c9bf0fc` | ArrayFormula fix, parse-versioned pkl cache, `excel_parity.py`, golden `--label` |
+| `3254a96` | Critical Minerals tab built |
+| `d62c9da` | Layout matched to Energy Security; scope note and long descriptions removed |

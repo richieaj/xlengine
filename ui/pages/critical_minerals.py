@@ -36,7 +36,7 @@ def render():
       <div class="chart-grid">
         <div class="card">
           <h3>Mineral Demand in 2047</h3>
-          <div class="card-sub">Tonnes — log scale, ranked</div>
+          <div class="card-sub">Tonnes — log scale, ranked. Violet: provisional perovskite inputs</div>
           <div class="chart-wrap-lg"><canvas id="crmMineralRankChart"></canvas></div>
         </div>
         <div class="card">

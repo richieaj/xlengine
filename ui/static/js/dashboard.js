@@ -1049,8 +1049,14 @@ function renderRankedBarChart(canvasId, chartData, opts) {
         legend: { display: false },
         tooltip: {
           callbacks: {
+            // The emergent cohort is sourced entirely from the two perovskite
+            // rows of the intensity matrix, whose figures are ~65-2200x lower
+            // per GW than the six established technologies (aluminium: 0.9 and
+            // 0 t/GW against a flat 7,200 everywhere else). Until those inputs
+            // are re-derived on the same basis, these values carry a caveat
+            // rather than a bare number.
             label: (c) => formatSeriesValue(c.parsed.x, unit) +
-              (emergent[c.dataIndex] ? "  (none in 2022)" : ""),
+              (emergent[c.dataIndex] ? "  (none in 2022; provisional input)" : ""),
           },
         },
         rankedValueLabels: true,
