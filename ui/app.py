@@ -27,7 +27,15 @@ from pages import (all_energy, electricity, energy_security, emissions, indicato
 PAGE_MODULES = [all_energy, electricity, energy_security, emissions, indicators,
                 costs, energy_flows, land_water, critical_minerals]
 
-WORKBOOK_PATH = os.path.join(os.path.dirname(__file__), "..", "workbook", "IESS2047_Version_3.0.xlsx")
+# Which workbook the backend drives. Overridable with IESS_WORKBOOK so a
+# different model file can be swapped in without editing code; the default is
+# the CRM-integrated build. Every pathway cache key embeds the workbook's
+# content hash (see _workbook_fingerprint), so switching files cannot serve
+# answers computed by the other one.
+WORKBOOK_PATH = os.environ.get(
+    "IESS_WORKBOOK",
+    r"D:\ACPET\CRM and IESS integration\IESS2047_CRM.xlsx",
+)
 
 # Windows' registry-backed mimetypes database has no .woff2 entry, so Flask's
 # static handler served the self-hosted fonts as application/octet-stream.

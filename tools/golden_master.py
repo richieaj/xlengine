@@ -148,9 +148,22 @@ def first_difference(a, b, path="", allow_new=False):
     return None
 
 
+def _out_dir(args):
+    """Baseline directory for this run.
+
+    --label keeps baselines from different workbooks apart. tests/golden/full/
+    is the pristine record for the ORIGINAL workbook and must not be
+    overwritten when the engine is pointed at a different one (via
+    IESS_WORKBOOK) — a baseline silently recaptured against another workbook
+    looks identical on disk and quietly redefines what "correct" means.
+    """
+    name = f"{args.profile}-{args.label}" if getattr(args, "label", None) else args.profile
+    return os.path.join(GOLDEN_DIR, name)
+
+
 def cmd_capture(args):
     vectors = build_vectors(args.profile)
-    out_dir = os.path.join(GOLDEN_DIR, args.profile)
+    out_dir = _out_dir(args)
     os.makedirs(out_dir, exist_ok=True)
     print(f"capturing {len(vectors)} vectors -> {out_dir}")
     t_all = time.perf_counter()
@@ -164,17 +177,32 @@ def cmd_capture(args):
         print(f"  [{i:>3}/{len(vectors)}] {name:<16} {dt:6.2f}s")
     gaps = len(APP.eng.ev._unevaluated)
     with io.open(os.path.join(out_dir, "_meta.json"), "w", encoding="utf-8") as f:
+        # workbook_fp is recorded so verify can say "this baseline belongs to a
+        # different workbook" instead of emitting N confusing per-key diffs.
         f.write(canonical({"profile": args.profile, "count": len(vectors),
-                           "engine_gaps": gaps}))
+                           "engine_gaps": gaps,
+                           "workbook": os.path.basename(APP.WORKBOOK_PATH),
+                           "workbook_fp": APP.WORKBOOK_FP}))
     print(f"done in {time.perf_counter()-t_all:.1f}s; engine gaps: {gaps}")
 
 
 def cmd_verify(args):
-    out_dir = os.path.join(GOLDEN_DIR, args.profile)
+    out_dir = _out_dir(args)
     if not os.path.isdir(out_dir):
         sys.exit(f"no baseline for profile '{args.profile}' — run capture first")
     vectors = build_vectors(args.profile)
     print(f"verifying {len(vectors)} vectors against {out_dir}")
+
+    # Cross-workbook check. Without it, verifying against another workbook's
+    # baseline produces a wall of numeric diffs that look like a regression.
+    meta_path = os.path.join(out_dir, "_meta.json")
+    if os.path.exists(meta_path):
+        with io.open(meta_path, encoding="utf-8") as f:
+            meta = json.loads(f.read())
+        if meta.get("workbook_fp") and meta["workbook_fp"] != APP.WORKBOOK_FP:
+            print(f"  WARNING: baseline captured from {meta.get('workbook')} "
+                  f"(fp {meta['workbook_fp']}), now running {os.path.basename(APP.WORKBOOK_PATH)} "
+                  f"(fp {APP.WORKBOOK_FP}). Differences below are expected.")
     failures = []
     t_all = time.perf_counter()
     for i, (name, vec) in enumerate(vectors, 1):
@@ -231,6 +259,10 @@ def main():
         s.add_argument("--allow-new", action="store_true",
                        help="permit keys added since capture (they cannot change any "
                             "previously-read value); pre-existing keys must still match")
+        s.add_argument("--label",
+                       help="suffix the baseline dir, e.g. --label crm -> tests/golden/quick-crm. "
+                            "Use for a different workbook so the original baseline is not "
+                            "overwritten.")
         s.set_defaults(func=fn)
     args = p.parse_args()
     args.func(args)

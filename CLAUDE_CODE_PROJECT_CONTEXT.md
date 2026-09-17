@@ -109,6 +109,27 @@ We are now in semantic compatibility mode.
 
 This is the trusted, current baseline. Do not treat any earlier number (77/78, 9/78, 18/78) as current — see "The Diagnostic Tooling Incident" below for why those numbers existed and why they're obsolete. Also note: "0 engine gaps" and "matches Excel" are two different claims — a formula can evaluate without error and still be numerically wrong, which is exactly what Fix 6 caught. Always validate at full precision before declaring a chain correct.
 
+**`tools/excel_parity.py` now enforces that second claim mechanically** (2026-09-17). It walks every
+formula cell that has a cached value and compares the engine against the number Excel itself saved,
+workbook-wide, in ~28s. `tools/golden_master.py` remains the *regression* gate (engine-now vs
+engine-at-capture) and structurally cannot catch a formula that was always wrong; parity is the
+*correctness* gate. Two tools, two claims — do not merge them. It supersedes `xlcompiler/count_flows.py`
+(one sheet, one column, ~120 rows).
+
+**Read a parity report with this caveat: both IESS workbooks ship with `calcMode="manual"`.** Excel's
+cached values are only as fresh as the last full recalculation, so a `NUMERIC_MISMATCH` may mean the
+*workbook* is stale rather than the engine wrong. The tool prints this warning itself. For a
+trustworthy run, open the workbook in Excel, Ctrl+Alt+F9, save, then re-run. `ZERO_COLLAPSE` and
+`TYPE_MISMATCH` stay meaningful regardless — a dropped formula is a dropped formula, which is why no
+parity baseline has been committed yet: a waiver list built on a stale oracle is a mute button.
+
+Current unwaived parity picture on `IESS2047_CRM.xlsx` (rel-tol 1e-2, pre-recalculation, so
+indicative only): 638 `ZERO_COLLAPSE` and 24 `TYPE_MISMATCH` workbook-wide, concentrated in
+`Sector-wise Energy Costs` (287) and `Cost - Import + Production` (224). The latter feeds the Costs
+tab. Several are `INDEX(discount_factors, MATCH(...))` returning 0 — a likely real engine gap in that
+lookup path, not yet diagnosed. `Grid balance` additionally holds 88,227 cells where **Excel itself**
+stored an error value.
+
 ---
 
 ## The Diagnostic Tooling Incident (read this before trusting any historical number)

@@ -10,9 +10,15 @@ Loads the xlsx ONCE with openpyxl, captures everything the evaluator needs:
 This is pure structure extraction — no evaluation happens here.
 """
 
+import glob
+import hashlib
+import inspect
+import os
+import pickle
+
 import openpyxl
 from openpyxl.utils import get_column_letter, column_index_from_string, range_boundaries
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 
 
 @dataclass
@@ -60,6 +66,44 @@ class CellModel:
     value:   object              # cached value from the workbook
 
 
+# Used only when the parse source cannot be read (frozen build, .pyc-only
+# install). Bump by hand in that situation; in a normal source checkout the
+# fingerprint below is derived and this is never reached.
+_PARSE_VERSION_FALLBACK = "v2-arrayformula"
+
+
+def _parse_fingerprint() -> str:
+    """Fingerprint of the CODE that produces a WorkbookModel.
+
+    The .compiled.pkl cache used to be invalidated by mtime alone, which answers
+    "did the workbook change?" but never "did the way we parse it change?". A
+    compiler fix — the ArrayFormula unwrap in _parse being exactly the case that
+    prompted this — left every existing cache valid, so the fix silently did
+    nothing on any machine with a warm pickle. That is the worst kind of bug:
+    the fix and the evidence for it are defeated together.
+
+    Derived rather than hand-bumped, for the same reason OUTPUT_FP in ui/app.py
+    is derived from the payload's own key names: a two-line parsing fix is
+    precisely the change nobody remembers to version. Fingerprinting the
+    dataclass FIELD NAMES (not their source) means a docstring edit does not
+    churn the cache while an added field does.
+
+    A comment or whitespace edit inside _parse does invalidate spuriously. That
+    costs one reparse; the alternative is silently stale parse semantics. The
+    false positive is the right trade.
+    """
+    try:
+        parts = [
+            inspect.getsource(WorkbookModel._parse),
+            inspect.getsource(WorkbookModel._load_tables_from_zip),
+        ]
+    except (OSError, TypeError):
+        return _PARSE_VERSION_FALLBACK
+    for dc in (CellModel, TableModel, NameModel):
+        parts.append(dc.__name__ + ":" + ",".join(sorted(f.name for f in fields(dc))))
+    return hashlib.sha256("".join(parts).encode("utf8")).hexdigest()[:10]
+
+
 class WorkbookModel:
     def __init__(self):
         self.cells:        dict[tuple, CellModel] = {}    # (sheet,row,col) → CellModel
@@ -73,15 +117,25 @@ class WorkbookModel:
     def load(cls, path: str, verbose: bool = True, use_cache: bool = True):
         """
         Load a workbook. On first load, parses the xlsx (slow) and caches the
-        result to <path>.compiled.pkl. Subsequent loads read the cache (fast)
-        unless the xlsx is newer than the cache.
-        """
-        import os, pickle
+        result to <path>.compiled.<parse-fingerprint>.pkl. Subsequent loads read
+        the cache (fast) unless the xlsx is newer than the cache, OR the parsing
+        code itself has changed.
 
-        cache_path = path + ".compiled.pkl"
+        The fingerprint lives in the FILENAME rather than inside the pickle on
+        purpose: checking a version field stored inside would require
+        pickle.load() first, and unpickling is exactly the unsafe act across a
+        schema change (a renamed dataclass field surfaces as an AttributeError
+        somewhere far away, or worse, a silently under-populated object). A
+        filename check decides staleness without touching the stale bytes, and
+        lets several versions coexist so switching branches does not force a
+        reparse each way.
+        """
+        cache_path = f"{path}.compiled.{_PARSE_FP}.pkl"
         if use_cache and os.path.exists(cache_path):
             xlsx_mtime  = os.path.getmtime(path)
             cache_mtime = os.path.getmtime(cache_path)
+            # The fingerprint answers "did the parser change?"; this still has to
+            # answer "did the workbook change?" — two independent questions.
             if cache_mtime >= xlsx_mtime:
                 if verbose: print(f"Loading cached model from {cache_path} ...")
                 try:
@@ -102,6 +156,18 @@ class WorkbookModel:
                 if verbose: print(f"  cached model → {cache_path}")
             except Exception as e:
                 if verbose: print(f"  cache save failed ({e})")
+            else:
+                # Each parser version writes its own file, so without this the
+                # 39MB pickles accumulate one per fingerprint. Only runs after a
+                # successful write, and never fails a load.
+                for stale in glob.glob(f"{path}.compiled.*.pkl") + [f"{path}.compiled.pkl"]:
+                    if os.path.abspath(stale) == os.path.abspath(cache_path):
+                        continue
+                    try:
+                        os.remove(stale)
+                        if verbose: print(f"  removed stale cache {stale}")
+                    except OSError:
+                        pass
 
         return m
 
@@ -140,11 +206,23 @@ class WorkbookModel:
                 for c in row:
                     if c.value is None:
                         continue
-                    is_formula = isinstance(c.value, str) and c.value.startswith("=")
+                    # openpyxl returns an array formula as an ArrayFormula object,
+                    # not a string — so a plain isinstance(str) test files those
+                    # cells as literal data holding a Python object. The formula
+                    # then never runs, and downstream SUM()s over it silently
+                    # contribute zero rather than failing. Unwrap to .text so they
+                    # evaluate like any other formula. Every array formula in the
+                    # IESS workbooks has a single-cell ref (e.g. ref='C42'), so no
+                    # spilled-range handling is needed here; a multi-cell ref would
+                    # need the result broadcast across the range.
+                    formula = c.value
+                    if type(formula).__name__ == "ArrayFormula":
+                        formula = formula.text
+                    is_formula = isinstance(formula, str) and formula.startswith("=")
                     cached = value_lookup.get((c.row, c.column))
                     m.cells[(sheet, c.row, c.column)] = CellModel(
                         sheet=sheet, row=c.row, col=c.column,
-                        formula=c.value if is_formula else None,
+                        formula=formula if is_formula else None,
                         value=cached if is_formula else c.value,
                     )
                     cell_count += 1
@@ -301,3 +379,8 @@ class WorkbookModel:
             n = self.sheet_names[sheet].get(key)
             if n: return n
         return self.names.get(key)
+
+
+# Computed once at import, after the class body exists (it reads the source of
+# WorkbookModel's own methods). load() mixes this into the cache filename.
+_PARSE_FP = _parse_fingerprint()

@@ -1,3 +1,17 @@
+"""SUPERSEDED by tools/excel_parity.py (2026-09-17).
+
+This compares engine output against Excel's cached values for ONE sheet
+("Flows"), ONE column (L, the 2047 year), ~120 rows, at a fixed 0.5 absolute
+tolerance, with a hardcoded default path into a D:/2047-old/ tree that no
+longer exists. excel_parity.py does the same comparison across every sheet and
+every formula cell, with relative+absolute tolerances and a defect taxonomy:
+
+    python tools/excel_parity.py --sheet Flows
+
+Kept only because the "78/78 flow edges match Excel within 0.5 Mtoe" headline
+in CLAUDE_CODE_PROJECT_CONTEXT.md came from this script. Prefer the new tool.
+"""
+
 import sys
 sys.path.insert(0, '.')
 from compiler.engine import ModelEngine
