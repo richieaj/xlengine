@@ -3,7 +3,9 @@ import collections
 import gzip
 import hashlib
 import json
+import mimetypes
 import os
+import re
 import sys
 import threading
 
@@ -14,8 +16,8 @@ from flask import Flask, jsonify, request
 from compiler.engine import ModelEngine
 
 from levers import load_levers
-from outputs import (CHART_YEAR_LABELS, DEFERRABLE_KEYS, compute_outputs,
-                     diff_outputs, kpi_deltas)
+from outputs import (CHART_YEAR_LABELS, DEFERRABLE_KEYS, SUMMARY_KPI_KEYS,
+                     compute_outputs, diff_outputs, kpi_deltas)
 from pages.base import render_base
 from pages.sidebar import render_sidebar_html
 from pages.tabs import render_tabs_html, render_year_buttons_html
@@ -26,6 +28,15 @@ PAGE_MODULES = [all_energy, electricity, energy_security, emissions, indicators,
                 costs, energy_flows, land_water, critical_minerals]
 
 WORKBOOK_PATH = os.path.join(os.path.dirname(__file__), "..", "workbook", "IESS2047_Version_3.0.xlsx")
+
+# Windows' registry-backed mimetypes database has no .woff2 entry, so Flask's
+# static handler served the self-hosted fonts as application/octet-stream.
+# Browsers sniff woff2 regardless, but the wrong type means a
+# `<link rel=preload as=font>` can be discarded (and the file fetched twice),
+# and it fails outright behind X-Content-Type-Options: nosniff — which a
+# .gov.in-adjacent deployment is likely to set. Registered here rather than
+# left to the host so the answer does not depend on the machine.
+mimetypes.add_type("font/woff2", ".woff2")
 
 app = Flask(__name__)
 
@@ -112,6 +123,17 @@ def index():
     html = html.replace("__YEAR_BUTTONS_HTML__", render_year_buttons_html())
     html = html.replace("__DEFAULT_SANKEY_YEAR__", CHART_YEAR_LABELS[-1])
     html = html.replace("__IDS_JSON__", json.dumps(list(ALL_LEVER_ROWS.keys())))
+    # Fail loudly on an unsubstituted token instead of shipping it to the
+    # screen. This whole page is assembled by str.replace (see base.py), and
+    # the failure mode is silent: a template gains a __TOKEN__ and, until a
+    # matching replace lands here, the reader sees the raw token sitting in
+    # the interface as if it were copy — which is exactly what happened with
+    # __SCALE_NOTE_HTML__ when a server was restarted after base.py gained the
+    # token but before app.py gained the line above. A 500 is easier to
+    # diagnose than a page that looks like it was left half-written.
+    leftover = re.findall(r"__[A-Z0-9_]+__", html)
+    if leftover:
+        raise RuntimeError("unsubstituted template token(s): " + ", ".join(sorted(set(leftover))))
     return html
 
 
@@ -244,12 +266,33 @@ def _workbook_fingerprint():
 
 WORKBOOK_FP = _workbook_fingerprint()
 
+# Fingerprint of the SHAPE of a cached payload, alongside the workbook's own.
+# The workbook hash catches "the model changed"; this catches "the set of
+# outputs changed", which is a different way to serve a wrong answer and was
+# not covered. Adding kpis.clean_share demonstrated it: every cached entry had
+# been written before that field existed, so a hit came back without it, and
+# kpi_deltas() read the missing baseline as 0 and would have reported a clean
+# share rising from 0% — a number the model never produced.
+# Derived from the payload's own key names rather than hand-bumped, so adding
+# or renaming an output invalidates the cache by construction and nobody has
+# to remember to change a version number here.
+def _output_schema_fingerprint():
+    keys = sorted(set(SUMMARY_KPI_KEYS))
+    with MODEL_LOCK:
+        sample = compute_outputs(eng, defer=DEFERRABLE_KEYS)
+    keys += sorted(sample.keys()) + sorted(sample.get("kpis", {}).keys())
+    return hashlib.sha256("|".join(keys).encode()).hexdigest()[:8]
+
+
+OUTPUT_FP = _output_schema_fingerprint()
+
 
 def pathway_key(levels):
-    """Content-addressed key for a lever vector under the current workbook."""
+    """Content-addressed key for a lever vector under the current workbook AND
+    the current output schema (see _output_schema_fingerprint)."""
     canon = canonical_levels(levels)
     body = ";".join(f"{k}={canon[k]}" for k in sorted(canon))
-    return WORKBOOK_FP + "-" + hashlib.sha256(body.encode()).hexdigest()[:24]
+    return f"{WORKBOOK_FP}{OUTPUT_FP}-" + hashlib.sha256(body.encode()).hexdigest()[:24]
 
 
 def _disk_path(key):

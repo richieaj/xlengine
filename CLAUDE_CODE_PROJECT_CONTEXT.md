@@ -3449,3 +3449,908 @@ Chart series colours are EU-Calc's own six anchors plus same-register extensions
 **Open issue.** Energy Flows overflows the window by ~253px: `#sankeySvg`'s height subtracts a hard-coded 300px allowance for the rest of the page, and the rest of the page grew today. Fix by measuring sibling heights instead — which would also let that tab rejoin `fitUiScale()`. See the Sankey section.
 
 **What is verified and what is not.** Everything visual was checked at 1366x768 / 1920x1080 / 2560x1440 / 3440x1297 by measurement (`data-ui-fit` on `<html>` reports scale, footer position, overflow and chart overhang). Interactions — flyout open/close, preset buttons, tab switching — are verified through `tools/devtools/cdp_driver.js`. **Not verified:** a full sweep of all 9 tabs and both sub-tab groups after the de-boxing and palette changes, and the Sankey on Energy Flows (the one view that opts out of the fit). That sweep is the obvious next task and the driver makes it cheap.
+
+---
+
+## 2026-09-08 (later) — Type scale bumped, then the All Energy page de-templated
+
+Two separate requests in one session. The first was a straight resize; the
+second was a structural refactor of the landing tab driven by one instruction:
+*remove the symmetry that makes it read as template-generated, with the Energy
+Flows Sankey as the quality bar.*
+
+### Part 1 — Type sizes raised to a supplied table, and the fit's hard limit
+
+Asked to match a laptop-target table (tiny 11-12px, secondary 12-13, normal
+14, nav 14-15, section 16-18, chart title 17-19, KPI 26-32, page title 24-28).
+Every authored size was raised, plus the Chart.js axis/legend sizes
+(`font: { size: 10.5 }` to `12`) and the Sankey's node labels (11 to 12.5).
+
+**Then a feedback loop showed up, and it is worth knowing about.** `fitUiScale()`
+shrinks the whole UI until the footer fits the window, so bigger text = taller
+content = a smaller zoom. Measured:
+
+| pass | authored normal text | resulting `--ui-scale` | on-screen |
+|---|---|---|---|
+| before | 12.5px | 0.90 | 11.3px |
+| +1 | 14px | 0.90 | 12.6px |
+| +2 | 15.5px | **0.837** | 13.0px |
+
+An 11% authored increase returned 4% on screen; the fitter took the rest back.
+**Absolute type size on this page is capped by the no-scroll rule** — chasing a
+px target with bigger values asymptotes and never lands. Reaching the table
+exactly requires giving something up: raise `UI_SCALE_MIN` and accept vertical
+scrolling, or shrink the fixed chart heights to free the space. Offered both;
+the user chose to keep the current proportions (hierarchy correct, everything
+~10-15% under the table). **Do not "fix" this by raising the numbers again.**
+
+### Part 2 — De-templating All Energy
+
+**1. KPI row is no longer four equal cards.** `repeat(auto-fit, minmax(190px, 1fr))`
+gave identical width and an identical 32px figure to the number the model
+exists to project, the CO2 that comes with it, and two percentages derived
+from the same supply total. Now `1.6fr 1.6fr 1fr`: Final Demand and Emissions
+lead at 46px with a `--lvl-3` top edge, and Clean Share / Imported Fuel are a
+narrow stack (`.stat-card-min`, 21px figure, caption on the same line).
+
+**2. The two headline charts are not twins.** `1fr : 1.32fr` via
+`.chart-duo:has(.chart-duo-supply-wide)`, scoped by class so Electricity's
+genuinely-equivalent duo is untouched. The ratio came from a defect, not
+taste: Supply carries 10 legend entries against Demand's 8 and owns the
+longest label in the interface, which the equal split was clipping to
+*"Oil and petroleum produc"* — so the chart with more to show was drawn
+smaller.
+
+**3. The twelve sliders were the biggest tell.** All 92px wide, all reading
+`avg 1.0`. Three changes, all data-driven:
+
+- **Track width = `64 + 11 x lever_count`** (`_track_width_px`), so the tracks
+  are 75-152px and the difference is how many real Control-sheet levers the
+  row moves — Renewable Generation (8) against Cooking (2) was previously the
+  same object. Verified against the real counts: 6/6/4/2/3/8/5/5/3/3/4/1/1.
+- **Group badge is `21 levers - L3-4`**, not `avg N.N`. An average of levels
+  has no unit and read `1.0` in all six boxes at once; the span is the thing a
+  group control can hide. At Heroic the six badges read L3-4 / L4 / L4 / L4 /
+  L3 / L3 — no longer identical.
+- **A spread band** (`.lg-lever-band`) draws the row's real low-to-high extent.
+  Note the subtlety: `inStep` (used for the hollow "mixed" thumb) is a
+  statement about the *thumb*, not about where the levers sit. Buildings at
+  Heroic is five levers at 4 and `lv40` capped at 3 — in step, and spanning two
+  levels. Gating the band on `inStep` meant it never appeared on any preset;
+  it is now gated on `lo !== hi` alone.
+
+**Handles genuinely differ now.** At Heroic, Industry sits at **75%** (level 4
+of 5 — `lv49` goes further than any preset takes it), Costs and Economy at 3
+of 3, the rest at 4 of 4.
+
+**4. The `LIVE - 7:09:17 PM` clock is gone.** A wall clock ticking to the
+second beside a projection that ends in 2047, which was really the timestamp
+of the last fetch. `#status-chip` is `:empty { display: none }` and speaks only
+while recalculating or after a failure.
+
+**5. Insights has content in its base state.** "Nothing has been changed yet"
+described the reader's click history. It now reports facts already in the
+payload — coal's share of 2047 supply from `supply_chart`'s own Coal series
+over its own total, and where final demand lands against 2022 from
+`demand_chart.total` — so it says something different per pathway (coal 53% at
+Least Effort, 16% at Heroic). After a move: `Passenger Transport Demand
+L4 -> L1`, then all four cards with before/after and %. A card that did not
+move is stated as **unchanged** rather than dropped: raising supply levers
+genuinely leaves final demand alone, and omitting it reads as an oversight.
+
+**6. The small-caps mono now means one thing.** It was on section headers, KPI
+captions, the footer, the pathway name and the clock simultaneously, which
+made it a decorative skin. It now marks *a measurement only*: `.stat-label`,
+`.panel-unit`, `.sankey-total`, the GHG gauge's label/max, `.lg-box-avg`,
+`.lg-subcat-count`. That is the Sankey's own convention (mono for "Total
+primary supply: 2902.5 Mtoe", plain for node labels). Headings, footer,
+`Predefined scenarios`, the pathway chip label and the group titles are plain
+sans — "Demand", not "D E M A N D".
+
+**7. Nav is three labelled clusters, not nine equal pills.** Grouped by what
+each tab outputs: **Energy** (All Energy, Electricity, Energy Flows) /
+**Impacts** (Emissions, Energy Security, Land & Water, Critical Minerals) /
+**Economy** (Costs, Indicators) — see `TAB_GROUPS` in `pages/tabs.py`.
+Critical Minerals carries a `soon` tag (it is the one tab with no model behind
+it) and Energy Flows a mark as the built view.
+
+**8. Energy Flows breaks the grid.** Full-bleed (measured 1473 of 1488px), no
+card chrome, and one dark `#3F4247` control strip carrying the year selector,
+the mono total-supply readout and the colour key together — they are apparatus
+for one diagram, and they used to be a toolbar above and a legend far below it.
+
+### Part 3 — follow-up pass on the deck (same session)
+
+- **Sliders moved next to their labels.** `.lg-subcat-title` was `flex: 1`, so
+  the label ate the slack and pushed its slider to the far right of the box —
+  a name at one side and an unrelated control at the other with ~200px of
+  nothing between. Now a fixed `flex: 0 0 50%`, which puts each slider after
+  its own label *and* lines every slider in a box up with the others. Tracks
+  are left-aligned (they were right-aligned to share the ceiling edge); the
+  shared reference is now the *start*, "business as usual", and reach runs
+  rightwards from it.
+- **Rows without a chevron reserve its slot** (`.lg-expand-spacer`). Without
+  it, single-lever rows started 19px left of expandable ones, so tracks in
+  Network and Systems / Costs+Economy did not line up. Verified: every track
+  in a column now starts on one x (239 / 612 / 964 / 1317).
+- **Track and thumb enlarged** — track 4 to 5px, thumb 14 to 17px, `.lg-lever`
+  22 to 24px, band 10 to 12px, and the invisible native thumb tracks the
+  visible one so the hit area matches.
+- **Predefined scenarios is a `<select>`.** Four mutually-exclusive states of
+  one thing, made once, previously four permanent targets and the widest thing
+  in the deck head. `Custom pathway` exists as a disabled option because it is
+  a state the model can be in but not one you can pick. The ramp colour the
+  buttons carried as dots is not lost — the pathway chip beside the tabs
+  already shows the loaded level's colour.
+
+### Two real bugs found while doing the above
+
+**`updatePathwayName()` could never recognise pathway 4.** It tested
+`values.every(v => v === values[0])` — every lever on the identical level — but
+seven levers cannot reach 4 (rows 31/40/59-62 cap at 3) and the model clamps
+them. So choosing Heroic wrote the heroic vector and the interface then
+reported **"Custom pathway"** and un-highlighted the button just pressed. Now
+`matchingPreset()` asks whether every lever is at `min(N, its own ceiling)`,
+which is exactly what `/set_scenario` writes and the same saturation rule
+`updateLeverRow()` uses. Verified: choosing Heroic reports "Heroic Effort",
+chip dot level 4.
+
+**The response cache key did not cover the output schema.** Adding
+`kpis.clean_share` (moved server-side from `dashboard.js`'s `cleanSharePct` so
+`kpi_deltas()` can diff it like the other three) exposed it: the key hashed the
+workbook fingerprint and the lever vector only, so every cached hit came back
+*without* the new field, and `kpi_deltas()`'s `or 0` read the absent baseline as
+zero — it would have reported a clean share "rising from 0% to 24%", a number
+the model never produced. Two fixes:
+
+- `OUTPUT_FP` (`app.py`) — a fingerprint derived from the payload's own key
+  names, mixed into `pathway_key()`. Adding or renaming an output now
+  invalidates the cache **by construction**; nobody has to remember a version
+  bump. **This invalidated the existing `cache/pathways/` corpus** — it
+  recomputes on demand, or refill with `tools/precompute_pathways.py`.
+- `kpi_deltas()` skips a key absent from *either* side instead of coercing it
+  to 0.
+
+**Also hardened:** `index()` now raises on any leftover `__TOKEN__` in the
+assembled HTML. The whole page is built by `str.replace`, and the failure mode
+was silent — a template gains a token and the reader sees it as copy, which is
+exactly what happened when a server was restarted after `base.py` gained
+`__SCALE_NOTE_HTML__` but before `app.py` gained the matching replace. A 500 is
+easier to diagnose than a page that looks half-written.
+
+### Where the endpoint labels ended up, and why (two failed placements)
+
+The ask was "label the track endpoints so a slider is legible before you touch
+it". Per-row failed: the caption is ~160px against tracks of 75-152px, so each
+one forced its cell wider than the track it labelled and pushed the page into
+horizontal overflow. Per-box failed differently: six copies of one identical
+sentence, which is the same generated quality being fixed, and it implied each
+group had its own scale. It is now **one line in the deck head**
+(`scale_note_html`), which also states what track *length* means — a width that
+varies for an unstated reason is just an inconsistency; said out loud it is a
+second axis. Row-specific detail (a ceiling of 3, the exact level) stays on the
+row: tick count, `title`, `aria-label`.
+
+### Files touched
+
+`ui/app.py`, `ui/outputs.py`,
+`ui/pages/{all_energy,base,energy_flows,sidebar,tabs}.py`,
+`ui/static/css/dashboard.css`, `ui/static/js/dashboard.js`.
+
+### Verified (by driving the real app over CDP, not by reading the CSS)
+
+- Track widths 75-152px matching the real per-row lever counts; every track in
+  a column left-aligned on one x.
+- Handles differ at Heroic (Industry 75%, Costs/Economy at their own 3-of-3
+  ceiling); the spread band appears on exactly one row (Buildings), and on
+  Transport too after an individual flyout edit.
+- Group badges differ per box and per pathway; `1 lever` / `21 levers` plurals.
+- Dropdown to Heroic sets the model, the chip and its own value; base-state
+  Insights facts change per pathway; after a lever move the panel prints
+  `L4 -> L1` plus all four KPIs with before/after.
+- All four presets recompute correctly post-cache-bust: demand 2201.98 /
+  1564.93 / 1225.04 / 1070.58, clean share 15.7 / 27.9 / 46.6 / 60.9%.
+- `document.documentElement.scrollWidth - clientWidth === 0` (no horizontal
+  overflow); no `__TOKEN__` left in the served HTML.
+
+### Still open
+
+- **An open sub-lever flyout does not re-run `fitUiScale()`**, so the deck
+  grows and the footer can clip while a flyout is open. Pre-existing.
+- The Energy Flows `#sankeySvg` hard-coded `- 300px` allowance noted in the
+  previous session is still there; the strip changed the sibling heights again.
+- The user's own dev server had been running since before these edits — a
+  stale process is why `__SCALE_NOTE_HTML__` appeared on screen at all.
+  **Python does not reload `.py` files without a restart** (`debug=False`, no
+  reloader), so a stale server serves the old HTML shape with the new CSS/JS,
+  which is a confusing state to debug.
+
+### Amendment (same session): the deck was made uniform again — read this over Part 2 item 3 and Part 3 above
+
+Two of the decisions recorded above were **reverted at the user's request**
+after seeing them on screen. The reasoning that produced them is left in place
+because it explains what was tried, but the shipped state is this:
+
+**Variable track width is gone. Every track is 132px** (`LEVER_TRACK_PX`).
+Encoding a row's lever count in its track length was real information and it
+still read as raggedness — twelve tracks of twelve lengths, ending on twelve
+different x positions, with nothing to scan down. The user's words: *"make the
+levers equally spaced and proper formatted... no matter the lever containing 3
+movers or 4 movers it should be properly spaced. Its so messy right now."*
+A control grid you can scan beats a second data channel nobody asked for. The
+lever count is still on each row as text (the `· 6` after its name).
+
+Verified: every track in a column now shares one left AND one right x
+(col1 239→342, col2 612→715, col3 965→1067, col4 1317→1419), width 102px real
+at scale 0.775, rows on a 26-27px rhythm.
+
+What still legitimately differs row to row is only what the model differs on:
+**tick count** (Industry shows 5 because `lv49` runs to 5; rows capped at 3
+show 3) and **handle position** (at Heroic, Industry sits at 75% because level
+4 of 5 is not its ceiling). Those are snap positions and real values, not
+styling.
+
+**The group-head badge is gone entirely.** It had been three things — `avg N.N`
+(an average of levels: no unit, and it read `1.0` in all six boxes at once),
+then `21 levers · L3–4` (accurate, but a lever count is not something the
+reader decides anything with, and six of them across the deck head was noise
+the user called out directly: *"I dont want it to be saying (21 levers) and so
+on it looks so stupid"*). The head is now just the group's name. A group's
+state is legible from its own rows, and the loaded pathway is named twice
+already — in the deck's select and in the chip beside the tabs.
+
+Dead code removed with it: `updateGroupAvg()` / `updateAllGroupAvgs()` and
+their two call sites in `dashboard.js`, the `.lg-box-avg` / `.lg-box-count`
+rules in `dashboard.css`, and `group_values` / `group_lever_ids` plus the
+`data-lever-ids` attribute on `.lg-box` in `sidebar.py` (nothing else read it).
+
+**The scale note lost its second clause.** It read *"...; track length is how
+many model levers the row moves"*, which became false the moment the widths
+were equalised — a note describing a variable width on a deck of identical
+widths is worse than no note. It is now just *"Every slider runs business as
+usual → maximum ambition."*
+
+**Also in this pass:** ticks 2→3px (they are now the only thing that varies
+between tracks, so they have to be legible), and the `.lg-expand-spacer` /
+`flex: 0 0 50%` title work from Part 3 is what makes the shared left edge
+possible — keep both if the deck is touched again.
+
+---
+
+## 2026-09-08 (later still) — Three-role type system, self-hosted; split tooltips rebuilt
+
+### Fonts: three families, self-hosted, subsetted here
+
+The single small-caps mono treatment was doing three jobs at once (section
+headers, KPI captions, footer, pathway name, the clock). Split into three
+families with non-overlapping roles, all served from our own origin:
+
+| family | role | weights |
+|---|---|---|
+| Instrument Serif | KPI figures, chart titles, deck heading | 400 |
+| IBM Plex Mono | numeric captions and readouts ONLY | 400/500 |
+| IBM Plex Sans | everything else | 400/500/600 |
+
+**No font CDN.** The two `<link>`s that pulled Ranade from Fontshare and four
+families from Google Fonts are gone — on a .gov.in-adjacent site they put two
+third parties in the critical render path and handed both a request from every
+visitor. Six woff2 files, **102 KB total**, in `ui/static/fonts/`, built and
+verified by **`tools/build_fonts.py`** (committed output, so a checkout needs
+no font tooling or network).
+
+**Why we subset ourselves rather than ship @fontsource's latin/latin-ext.**
+Measured, not assumed: Google's `latin` range carries U+2191 and U+2193 but
+**not U+2192**, and no subscript digits at all. This UI draws both — the
+Insights panel's "L4 → L1" and every "GtCO₂" — so with those files two
+characters fell back to whatever the OS had, one of them inside a 40px serif
+KPI figure. `build_fonts.py` adds U+2082/U+2192/U+2026 and then *proves* the
+coverage per face, failing the build if a required codepoint is missing.
+
+**Instrument Serif genuinely lacks U+2082 and U+2192** — checked against the
+upstream TTF, so it is exempt in the build's per-role contract. The KPI figure
+uses `GtCO<sub>2</sub>` markup instead (`setEmissionsFigure()` in dashboard.js,
+`sub { line-height: 0 }` in the CSS so a 40px figure does not grow its card),
+which subscripts the serif's own "2" rather than borrowing one glyph.
+
+**Tabular figures — what the declaration does and does not buy.** Measured
+from the shipped files: IBM Plex Sans and Mono digits are **already
+equal-advance (600 units)** and ship no `tnum` feature because they do not
+need one. That is why the canvas-drawn axis ticks and tooltips cannot jitter
+even though canvas 2D has no way to request tabular figures. **Instrument
+Serif is proportional (249-460 units) with no tabular feature to switch to**,
+so `font-variant-numeric: tabular-nums` is *inert on the KPI figures* — by
+necessity, not omission. Every hover-critical number (Sankey readout and
+tooltip, chart tooltips, axes) is sans or mono, so none of them shift.
+
+**Scale: seven steps, closed.** Declared as `font` shorthands in `:root`
+(`--t-kpi` 40/1.1, `--t-chart` 22/1.2, `--t-section` 20/1.2, `--t-body`
+14/1.5, `--t-label` 13/1.4, `--t-caption` 11/1.3, `--t-axis` 11/1.2) so a
+component takes a *role*, not a size — 47 rules were remapped and no raw
+`font-size` remains in the stylesheet. **The `font` shorthand resets
+`font-variant-numeric`**, so tabular declarations must come after it; that is
+why `.num` and the numeric roles are a separate block.
+
+`TYPE` in dashboard.js restates the same steps for canvas/SVG, which do not
+inherit the stylesheet: axes `--t-axis`, legends and Sankey node labels
+`--t-label`, and `Chart.defaults.font` set so an unspecified option cannot
+land on Chart.js's own Helvetica 12.
+
+**Two judgement calls, both flagged rather than buried:**
+- **The masthead** is the one element the role list does not name. It takes
+  the display face at an existing step (`--t-chart`, 22px, down from 29px)
+  rather than a new size — deliberately not the KPI step, since the largest
+  type on the page should be the projection, not the branding.
+- **Unit symbols are not uppercased.** `text-transform: uppercase` on
+  `.panel-unit` shipped for one pass and rendered "Mtoe" as **"MTOE"**, and
+  the gauge's "10 GtCO₂" as "10 GTCO₂". A unit symbol is case-significant
+  notation (M = mega, toe = tonne of oil equivalent), so the small-caps
+  treatment is now on captions only ("FINAL DEMAND 2047", "GHG 2047").
+
+Verified: all six faces report `document.fonts.check() === true`; **swapping
+the size-adjusted Georgia fallback for the real serif moves the KPI card by
+0.00px**; All Energy shows exactly three families, each doing one job.
+Energy Flows shows **two** (Plex Sans + Plex Mono) — correctly, since that tab
+has no KPI figures and no chart titles.
+
+### Chart tooltips: EUCALC/Highcharts split behaviour
+
+There was already a split tooltip; it differed from the reference in almost
+every detail. Rebuilt: boxes are now **near-white at 95% with a 1px border in
+the series' own colour and one dark-neutral (#2b2b2b) text** for every series
+(colour lives in the border and symbol only — the values read as a column),
+`distance: 16`, `padding: 6`, `borderRadius: 4`, no shadow.
+
+**Symbols.** `SERIES_SYMBOL` pairs a shape with a fill: 5 shapes (circle,
+square, diamond, triangle, triangle-down) x {solid, hollow} = 10 unique
+symbols, enough that no two bands on the widest chart share one. Each symbol
+sits **immediately left of its box, outside it, centred on the box**, at 10px
+and full colour/opacity. `drawSymbol()` is the single renderer for the
+tooltip, the legend swatch and any point marker — the legend uses it via a
+cached canvas `pointStyle`, because Chart.js's built-in point styles have
+neither triangle-down nor hollow variants, and the whole point is that the
+glyph in the legend is the glyph in the tooltip. The Total line gets a
+coloured border and **no** symbol.
+
+**Distinctness is enforced, not maintained by hand.** `assignChartSymbols()`
+resolves symbols per chart: preferred pairing if free, otherwise the first
+unused one, with a console warning. This was not hypothetical — *Electricity*
+and *Telecom* were both circle/hollow and they meet on the emissions-by-sector
+chart, where two of nine bands were indistinguishable by symbol. Hand-checking
+every chart's series list is the kind of invariant that breaks on the next
+series added.
+
+**Collision handling** is Highcharts' `distribute()` problem, solved properly:
+`distributeBoxes()` merges colliding boxes into groups and centres each group
+on the **mean of its members' targets** — the placement that minimises total
+squared displacement subject to order and spacing — then clamps only the final
+group positions. The previous forward-push pass dragged the whole cluster down
+from the first collision onward. Displaced boxes draw a 1px connector in the
+series colour back to the true data point; undisplaced ones do not.
+
+**Value formatting** (`formatSeriesValue`): 2 dp, thousands separators from 4
+digits, **a true minus U+2212** for negatives, exact zero as `"0"` not
+`"0.00"`, unit appended to the value never the series name. Verified:
+`1234.567 → "1,234.57 Mtoe"`, `-284.9512 → "−284.95 Mtoe"`, `0 → "0 Mtoe"`.
+
+**Crosshair** is a band, not a hairline: the hovered column lightened with a
+30% white overlay plus a 2px white line, column width taken from the actual
+category spacing. Non-hovered areas are **not** desaturated — the reader is
+comparing this column against its neighbours. (The Sankey does dim its
+surroundings; that answers a different question and the two stay distinct.)
+
+**Category callout** is its own box just above the axis with a downward tail
+touching the axis line, #333 border, bold text, clamped inside the plot width.
+
+**Side selection deviates from the brief, deliberately.** The spec says flip
+to the right when the pointer is in the right ~35%; that flips the cluster
+*toward* the near edge and would push boxes off-plot. Implemented instead as
+measured fit — prefer left, flip when the cluster's **widest** box does not
+fit, with the 35%/65% zones as the tie-break — because series names differ
+enormously in length ("Oil and petroleum products: 1,234.56 Mtoe" is over
+twice "Wind: 0"). Verified: 10 boxes, right edges 445-489 inside a plot ending
+at 560, no overflow at any hover position.
+
+**The emissions unit is `Mt CO₂e`, not `GtCO₂`.** The brief asked for GtCO₂ in
+emissions charts, but `emissions_by_sector_chart` is Million tonne CO2e —
+labelling it Gt would misstate every value by 1000x. Shortened from the
+verbose "Million tonne CO2e" to correct compact notation instead.
+
+### Also
+- The **"Custom Pathways" description** is gone (and with it
+  `scale_note_html`, its token, and the `.cdh-scale-note` rule).
+- The Insights panel's **"Lever moved" group label** is gone — each line
+  already reads "<name> L4 → L1", which says a lever moved by saying which
+  one and how far. The KPI group keeps its label; that marks a second list.
+- `mimetypes.add_type("font/woff2", ".woff2")` in app.py: Windows' mimetypes
+  database has no woff2 entry, so Flask served the fonts as
+  `application/octet-stream`, which discards a preload and fails outright
+  behind `X-Content-Type-Options: nosniff`.
+
+### Files touched
+`tools/build_fonts.py` (new), `ui/static/fonts/*.woff2` (new, 6 files),
+`ui/app.py`, `ui/pages/base.py`, `ui/pages/sidebar.py`,
+`ui/static/css/dashboard.css`, `ui/static/js/dashboard.js`.
+
+### Still open
+- The `--ui-scale` fit still caps absolute type size (see the earlier entry);
+  the seven steps are authored px, so on-screen sizes land ~15-20% under the
+  step values at the fitted zoom.
+- Chart.js's canvas cannot honour `font-feature-settings`; this is only
+  harmless because IBM Plex's digits are equal-advance. A display face with
+  proportional digits must never be used for canvas numerics.
+
+---
+
+## Session Notes (2026-09-09) — Chart legend simplified; Insights trimmed and relocated; deck geometry/palette reworked; Roboto everywhere; per-lever tooltips. **All UI-layer — no engine and no `ui/outputs.py` compute changes, so no model number moved.**
+
+A long iterative session, recorded in the order things happened. Several
+decisions were superseded *within* it — the deck band went grey → beige → grey,
+and the Insights panel moved twice — so read "Where this session landed" at the
+end before trusting any single step.
+
+### Chart series marks: shapes removed, one colour box
+
+`SERIES_SYMBOL` (a ~40-entry shape × solid/hollow preference map), `SHAPES`,
+`symbolForSeries()`, `assignChartSymbols()` (a per-chart collision resolver),
+`drawSymbol()` and `symbolCanvas()` are **all gone** from `dashboard.js`.
+Replaced by one `drawSwatch()` — a small rounded box in the series colour —
+plus `swatchCanvas()`, used for both the legend key and the tooltip key so the
+two marks are literally the same function.
+
+The legend key is still a canvas image handed to Chart.js as `pointStyle`
+rather than its built-in box: these datasets carry the **area gradient** as
+`backgroundColor`, so the built-in box would sample a gradient at legend
+coordinates instead of showing the flat series colour. `"Total"` keeps
+`pointStyle: "line"` (it is drawn as a line over the stack, not a band).
+
+Fixed while in there: the Costs capex **bar** chart carried a dead
+`pointStyle: "circle"` (its legend never used point styles), so its legend drew
+default Chart.js boxes at a different size from every other tab's.
+
+### Insights panel: KPI effects only
+
+The lever-change list and the `Effect on the four KPIs` heading are both
+removed. `addInsightsGroupLabel()` and `.insights-group-label` went with them.
+Which lever sits where is already legible, live, in the deck below; the panel
+now answers exactly one question — what did that do to the results.
+
+### Custom Pathways deck: geometry
+
+- **`.lg-subcat-title` is a fixed 168px, not `0 0 50%`.** The share was a share
+  of a column that stretched to a quarter of the window: measured **272px
+  against a longest real label of 162px**, i.e. ~110px of dead space on every
+  row, growing with the monitor. Worst-case gap went 212px → 123px; most rows
+  are now 10px. Still a fixed width, not content width, so every track in a
+  column keeps one left and one right x.
+- **Columns cluster left.** `.lg-col` is a derived fixed `353px`
+  (chevron 15 + gap 10 + title 168 + gap 10 + track 150) with
+  `justify-content: flex-start`, instead of `flex: 1 1 0`. The "scattered" gaps
+  between groups were the leftover width being handed out *between* them. 353
+  also has to clear the widest group heading ("Supply — Renewable and Clean
+  Energy", measured 251px + dot + gap = 265).
+- **Levers are bigger**: track 5→7px, thumb 17→20px (native hit-thumb matched),
+  ticks 3→4px, band 12→14px, track width 132→150px, row height 24→28px. Row
+  padding 5→3px *deliberately*: at 1366×768 the fit is already pinned to its
+  0.7 floor, so 4px/row came straight off the bottom of the window.
+  24+10 = 28+6 = 34px, so the deck is exactly as tall as before with a bigger
+  control inside it — confirmed by A/B injection, 309px both ways.
+- `LEVER_TRACK_PX` removed from `sidebar.py`: rendered by nothing, and free to
+  drift from the CSS that actually decides the width, which it had.
+
+### "Other" absorbed Costs and Economics
+
+`CATEGORY_RANGES` maps both to the `"Other"` group; `SIDEBAR_GROUP_ORDER` drops
+them. Each was a whole panel — own heading, own accent dot — over a single row,
+so the deck carried three headings for three rows of the same kind of thing.
+Leftovers are `insert(0, …)` so the unclassified rows read first. `"Other"`
+sits **under** "Network and systems" in the third column, not in a fourth of
+its own: a column each put its heading level with the four top-level groups, as
+if it ranked with them.
+
+Verified: 51 hidden lever inputs, 51 unique — nothing lost in the regroup.
+
+### A faded navy rule between deck sections
+
+`--deck-divider: #1D4266`, same hue family as `--accent` two steps darker.
+Painted at **30% with a vertical fade to nothing at both ends**, not solid:
+solid measures 8.87:1 against the band, about seven times harder than any other
+hairline in the interface (`--line` on white and `--deck-line` on the band are
+both ~1.27:1; the tab rule is 2.32:1), and at that weight it boxed each column
+in rather than dividing them. Verified from rendered pixels, since the paint is
+a `color-mix(… transparent)` gradient in `background-image` that could fail
+silently: peak **#AEB9C4, 1.70:1** mid-height, decaying to 1.05:1 at the top
+and 1.14:1 at the bottom.
+
+Drawn as an absolutely-positioned `::before` in the gap, **never** a
+`border-left` — with the global `box-sizing: border-box` a border comes out of
+the column's own 353px and sits hard against its first character.
+`.lg-rail-col.is-open + .lg-col::before { display: none }` stops a rule landing
+inside the slide-out flyout rail.
+
+### Predefined scenarios merged into the pathway chip
+
+The `<select>` moved out of the deck head into the tab row's `.pathway-chip`.
+It was real duplication in the code too — `updatePathwayName()` was writing the
+same answer into the chip's text *and* the select's value. `#pathway-name` and
+`PATHWAY_NAMES` are gone; the select displays the name itself, including the
+disabled "Custom pathway" option. **`PATHWAY_NAMES` and the markup had already
+drifted** ("Least Effort" vs "Least effort") — one source now.
+
+### Roboto for everything
+
+`tools/build_fonts.py` rewritten: **one 42.7 KB variable woff2** (google/fonts
+`Roboto[wdth,wght]`, `wdth` pinned to 100, `wght` kept, declared
+`font-weight: 100 900`) replacing six static files at 102 KB. Variable because
+the UI asks for four weights (400/500/600/700) and this resolves each exactly
+with no static-instance mapping to maintain.
+
+The build now **asserts** the digits are equal-advance rather than noting it.
+That property is load-bearing: chart axes, tooltips and the Sankey readout are
+canvas-drawn and canvas 2D cannot request tabular figures. Roboto's are
+1151/2048 uniform. (Instrument Serif's were proportional, 249-460 — so the
+`tabular-nums` declaration was *inert* on the 40px KPI figures before. This
+collapse fixed a real weakness rather than only trading one away.)
+
+**Roboto contains no arrows and no triangles** — of its 927 codepoints
+U+2190-2193 and U+25B2/U+25BC are all absent, checked against the upstream TTF.
+Found by inventorying every non-ASCII character the UI actually draws (source
+files *plus* the live HTML, so workbook-sourced lever names were included)
+against the cmap. Three were affected and are now **drawn, not glyphs**:
+
+- `→` in the Insights before/after lines **and** the Sankey link tooltip — one
+  inline SVG, one shared `ARROW_PATH` for the DOM and HTML-string call sites.
+  It carries `role="img" aria-label="to"`: `aria-hidden` left a screen reader
+  reading "2,202 Mtoe 2,059 Mtoe" with no relation between the figures.
+  Confirmed `image: "to"` in the accessibility tree.
+- `▲`/`▼` Insights badges — CSS border triangles. `addInsightsLine()` takes
+  `"up"`/`"down"` now instead of the glyph it used to string-compare.
+
+`U+2500`/`U+2550` are also missing but only appear in comment banners. Roboto
+*does* have U+2082, which Instrument Serif lacked.
+
+Four references a CSS-only edit would have missed: a **second**
+`Chart.defaults.font.family` assignment, two hardcoded canvas fonts inside
+chart plugins, and the `<link rel="preload">` tags, which would have been
+preloading two deleted files.
+
+### Chart palette moved onto the Sankey's own register
+
+The charts carried an EU-Calc-sampled palette while the Sankey used its five
+category colours — two palettes for one dataset. The charts now take the
+Sankey's five as anchors.
+
+**A literal copy does not work.** The Sankey's register is deliberately tight
+(five vivid mid-luminance colours): its loss red (L=0.228) and demand violet
+(L=0.220) are **0.008** apart. Invisible in the diagram, where the two are
+never adjacent; on the Energy Demand chart Agriculture and Telecom would have
+been indistinguishable bands. So hue and saturation are held at the Sankey's
+values and **the lightness is solved** — coordinate ascent over the 91 colour
+pairs that actually co-occur (checked against every chart's real series list,
+pulled from the live payload), maximising the smallest luminance gap, with
+lightness leashed to ±0.08.
+
+Result **0.040**, in `PALETTE` (`dashboard.js`). Honestly below the previous
+palette's 0.053, and that is the price of this register:
+
+- ±0.25 reaches 0.057 but turns the carrier amber into pale cream;
+- unconstrained reaches 0.052 with a **brown** amber (#8F610A) and a near-white
+  cyan. **Do not "improve" the gap by rerunning without the leash.**
+
+The anchors barely moved (amber #F2B84B→#F4C56C, red #E05263→#DD4153).
+`SANKEY_NODE_COLORS` is deliberately **unchanged** — the diagram is the thing
+the user liked, and it needs no spreading.
+
+`COLORS` (the positional fallback) went 10 → 14 entries: capacity/capex/opex
+carry 13-14 series and were wrapping and repeating a colour. Verified 13 series
+→ 13 distinct. Six single-colour bar charts still passing old hexes inline were
+remapped.
+
+### KPI cards: smaller, one accent each, emissions card removed
+
+Figures 40→30px (lead) and 22→19px; padding tightened. Each card takes a colour
+from the same five by what the number *is* — demand → carrier amber, clean
+share → source green, imports → tech blue — on the top edge and a faint
+background wash only. Deliberately **not** on the caption or figure: at 11px on
+white the lime measures 2.2:1. Measured on the washes, `--muted` holds
+5.35-5.52:1 and the figure 17.9:1+.
+
+**The "Emissions 2047" card is gone** — the GHG gauge is the same
+`emissions_2047_total` field on a 0-10 GtCO₂ scale, so the card was a second
+readout of one number. `renderOverviewKpis()` no longer writes it (it would
+have thrown a null deref every recalc); `setEmissionsFigure()` survives for the
+gauge. Insights still reports emissions before → after, which neither shows.
+With three cards the row is `1.5fr 1fr 1fr` and the supporting pair leaves its
+stack via `display: contents` — a two-column shape left the figure at the left
+edge of a half-page-wide box.
+
+### GHG gauge on dark navy
+
+The light-blue box was the contrast problem, and the cause was structural: the
+meter is a *light* green, so on a light box bar and surround were the same
+weight — green against box measured **1.26:1**. Dark ground fixes it at the
+root instead of trading pairs off:
+
+| | before | after |
+|---|---|---|
+| meter on track | 2.63:1 | **5.07:1** |
+| labels on box | 13.41 (dark-on-light) | **12.91** (light-on-dark) |
+| border on box | 1.71:1 | **7.56:1** |
+
+`--gauge-box: #0F1A28` (navy, not black, so it sits with `--rule-accent` and
+`--deck-divider`), `--gauge-track: #2E4460`, `--gauge-meter: #79CE3B`
+(PALETTE.lime), `--gauge-ink: #D6DEE8`. The value readout needed **two**
+colours — light on the track, dark inside the light meter; it was dark in both,
+correct for a light box and invisible here.
+
+### Every tab now fits at ONE `--ui-scale`
+
+**The reported symptom was that All Energy scaled differently from every other
+tab.** Measured cause: `fitUiScale()` runs per tab, so a taller tab gets a
+smaller zoom and the whole chrome resizes on switch. All Energy is the only tab
+with a KPI row — **1070 logical px against ~1020 elsewhere**, scale 0.921 vs
+0.966-0.973, a 5.4% jump.
+
+Fixed out of the charts, not the scale (the user's own suggestion). Logical
+height is `clientHeight / scale`, so the correction is a known number of pixels
+off one chart row:
+
+```css
+.chart-wrap-duo    { height: 359px; }  /* All Energy: 380 - 50, then +29 back
+                                          when the KPI row lost its stack */
+.chart-wrap-duo-lg { height: 467px; }  /* Electricity: was 7px SHORT, not over */
+.chart-wrap-lg     { height: 440px; }  /* already on target */
+.chart-wrap        { height: 400px; }  /* already on target */
+```
+
+Verified: spread `0.966 → 0.966` at 1920×1080 (was 0.921 → 0.973), 1.319 at
+2560×1440, 0.700 (the documented floor) at 1366×768. **If a tab's structure
+changes, re-measure with this method** — read the fitted scale per tab, convert
+to logical height, correct each tier once — rather than nudging by eye.
+
+Two outliers left, both pre-existing and not fixable by shrinking charts:
+**Energy Flows** overflows ~266px (it opts out of the fit; its SVG subtracts a
+hardcoded 300px allowance the page has since outgrown — the long-standing open
+issue), and **Critical Minerals** fits at 1.40 because it is an empty
+placeholder with no content to fill the window.
+
+### Per-lever tooltips extended to every lever, bundled rows included
+
+Hovering any lever shows the Control sheet's own ambition notes. Two shapes:
+
+- one Control-sheet lever (flyout rows, single-lever group rows) → its note for
+  its current level, from `data-descs`;
+- a **bundled** group row ("Transport · 6") → one line per lever, each with the
+  level *that lever* is actually on and its own note. These previously showed
+  nothing, on the reasoning that a shared dot has no single honest sentence —
+  true, and the answer is a list rather than an invented sentence. It also
+  handles the mixed case (a capped lever, or one edited in the flyout), because
+  each line reads its own hidden input rather than the row's dot.
+
+**No extra payload**: the notes are already in the DOM on that sub-sector's
+flyout rows, and the group row already lists its lever ids, so the tooltip
+reads across instead of shipping a second copy (~16 KB of HTML avoided).
+
+Verified by hovering all 13 deck rows and all 49 sub-levers: **every deck row
+shows a tooltip**. The only sub-levers without one are the four Costs levers,
+and that is source data — checked against the served HTML, **7 of the 49 levers
+have columns H-K empty on the Control sheet** (lv45, lv47, lv51, lv59-62), and
+4 more have notes at some levels but not at level 1. A bundled row therefore
+renders even when *no* member has a note (names + levels are real information
+about what the row moves), which is what gives "Costs · 4" a tooltip at all.
+
+### Insights moved into Custom Pathways; charts got the page back
+
+Insights was a card in a 268px second track of `.page-grid`, beside the charts.
+It is now the **right-hand column of the Custom Pathways band** —
+`.lg-insights-col`, carrying the same faded navy rule the lever columns carry
+between them. (`margin-left: auto` pinned it to the window's right edge at this
+point in the session; it was taken back out later the same day — see "Insights
+pulled back beside the levers" below.) `.page-grid` is single-column, so every chart
+on every tab gained ~282px of width. It also belongs there by subject: it
+reports what the levers did, and the levers are in that band. Insights is no
+longer hidden on Energy Flows (nothing competes with the Sankey now), and
+`.page-grid.rail-hidden` plus the class toggle are deleted.
+
+Cost of the move, measured and accepted: the deck is taller than the lever
+columns alone, so the common fitted scale went 0.966 → **0.946**. All tabs
+remain exactly converged.
+
+**A real bug this surfaced:** the page settled **16px past the bottom of the
+window on first paint** and only came right once a tab was clicked. Insights is
+part of the deck's height now, but the panel is empty until the first
+`/set_scenario` response lands — after the load-time fit has run. Fixed with a
+`requestAnimationFrame(() => fitUiScale())` at the end of `applyResult()`. Not
+a loop: the fit changes the zoom, and the zoom does not change what
+`renderInsights()` emits.
+
+### Tried and REVERTED: a beige Custom Pathways band
+
+Beige (`--deck-bg: #F2EADA`, `--deck-line: #D8CDB8`, track `#C7BCA4`, mixed
+thumb `#E3D6B9`) measured fine or better than the greys everywhere — 1.20:1
+against the white page where the grey manages 1.14, and the warmed track went
+1.38 → 1.57 — but on screen it read badly against the white plane and the dark
+masthead. Reverted to `#EDEDED` / `#D4D4D4` / `#C9C9C9` / `var(--surface-2)`.
+**Not worth re-attempting on the measurements alone; this one is a look
+judgement.** Recorded in the CSS at the token so it is not re-tried blind.
+
+### Environment gotchas that cost real time
+
+- **`ERR_UNSAFE_PORT`: Chrome hard-blocks ports 5060 and 5061** (SIP /
+  SIP-TLS). A disposable app instance on 5061 served 200 to `curl` while
+  headless Chrome loaded `chrome-error://chromewebdata/` with zero console
+  errors — which looks exactly like a broken page. Diagnosed by bisecting
+  (curl vs Chrome, two different servers) and then reading the error code out
+  of Chrome's own error page via `--dump-dom`. **Use 5057-5059 or 5062+ for
+  throwaway instances**; `--no-proxy-server` does not help and was not the
+  cause.
+- A **stale headless Chrome still holding the CDP port** makes a driver script
+  connect to the old browser sitting on `about:blank`: the script runs, reports
+  no errors, and returns empty selectors. Clean up by matching `--headless` in
+  the command line — never by killing `chrome.exe` broadly (the user's own
+  browser was 20 of 20 processes at one point).
+- The recurring stale-Flask-process problem appeared in a new guise: the user's
+  server serves `dashboard.css`/`dashboard.js` **fresh from disk** while
+  holding `.py` modules in memory, so a CSS change lands and a Python change
+  does not. Their screenshot showed the new navy rules with the *old* four-
+  column layout. Diagnosed by diffing `DECK_COLUMNS` in the file against
+  `lg-col-N` in the live HTML — a quick way to prove it.
+
+### Files touched
+
+`ui/pages/{all_energy,base,sidebar}.py`, `ui/levers.py`,
+`ui/static/css/dashboard.css`, `ui/static/js/dashboard.js`,
+`tools/build_fonts.py`, `ui/static/fonts/roboto-var.woff2` (new; the six
+IBM Plex / Instrument Serif files deleted).
+
+**Nothing in `xlcompiler/compiler/` and no compute path in `ui/outputs.py` was
+touched, so no model number changed and `count_flows.py` is not implicated.**
+
+### Where this session landed
+
+- **Type**: one family, Roboto, self-hosted, one variable woff2. Arrows and
+  triangles are drawn (SVG / CSS borders) because Roboto has none.
+- **Chart palette**: the Sankey's five anchors with solved lightness
+  (`PALETTE`), min co-occurring luminance gap 0.040. The Sankey itself is
+  untouched.
+- **Legend/tooltip mark**: one colour box, no shapes.
+- **Deck**: grey band (`#EDEDED`), three lever columns + the flyout rail inside
+  a fixed 1464px lever region (`.lg-cols`), with Insights immediately after it
+  rather than at the window's edge; faded navy rules between. The columns are
+  elastic within that region (353px each with a flyout open, ~461 with it
+  shut). Costs and Economics live under "Other". Every lever has a hover
+  tooltip.
+- **KPI row**: three cards (demand / clean share / imported fuel), one accent
+  each; emissions is the dark-navy GHG gauge above the deck.
+- **Layout**: `.page-grid` single-column, charts full width; every chart tab
+  fits at one `--ui-scale` (0.946 at 1920×1080).
+
+### Not yet done
+
+- **The Energy Flows `#sankeySvg` hard-coded `- 300px` allowance** is still
+  there, that tab still overflows (~266px), and it still opts out of the fit.
+  Sizing it from measured sibling heights would fix the overflow *and* let the
+  tab rejoin `fitUiScale()`. This is the oldest open UI issue in this file.
+- Critical Minerals fits at 1.40 (empty placeholder, nothing to shrink).
+- The KPI figures and chart titles are plain Roboto 400 now — hierarchy rests
+  on size alone since the serif went. Weights were left unchanged rather than
+  redesigned; if they read too light, the three display steps taking 500 is a
+  one-line change.
+- 7 levers have no ambition notes in the workbook at all, and 4 more have gaps
+  at some levels. Nothing to fix in the UI — if those columns are ever filled
+  in on the Control sheet, the tooltips pick them up with no code change.
+
+---
+
+## Session Notes (2026-09-09, later) — Insights pulled back beside the levers; the lever columns became elastic inside a fixed region
+
+**UI-layer only** — `ui/pages/base.py` and `ui/static/css/dashboard.css`. No JS,
+no `ui/levers.py`, no `ui/outputs.py`, no `xlcompiler/`. No model number moved.
+
+### The complaint
+
+Insights had just been moved into the Custom Pathways band and pinned to the
+window's right edge with `margin-left: auto` (see the previous section). On a
+1920 screen that left several hundred pixels of nothing between the last lever
+column and the panel: the band read as two unrelated halves, controls at the
+left and commentary marooned at the right. The user's ask, with the position
+marked on a screenshot: *put it near the levers, and let the levers shrink and
+expand within their confined space.*
+
+### What changed
+
+**1. A lever region: `.lg-cols`.** The three group columns and the slide-out
+rail are now wrapped in one flex item in `base.py`, sitting inside
+`.lever-grid` beside `.lg-insights-col`. Insights is the item after it, with no
+`margin-left: auto` — so it sits directly against the controls.
+
+**2. That region is a fixed width, and the columns are elastic inside it.**
+`.lg-cols { flex: 0 1 1464px }`; `.lg-col` went from `flex: 0 1 353px` (a fixed
+size) to `flex: 1 1 353px` (353 as a *basis* they share around).
+
+1464 is the open state measured, not a taste number:
+
+```
+3 × 353 (the derived column width) + 2 × 40 (gaps between them)
+                                   + 40 (gap to the rail) + 285 (open rail)
+= 1464
+```
+
+So **with a flyout open every column is at exactly the 353px it was designed
+around**, and with it closed the same 1464 is shared by three columns (~461
+each). This is the point of the wrapper: opening a sub-sector redistributes
+width *inside* the region instead of shoving Insights sideways by 285px.
+Commentary that jumps when you touch a control reads as breakage.
+
+**3. The column's surplus goes to the track, not to dead space.**
+`.lg-subcat-row:not(.lg-flyout-row) > .lg-lever-cell` overrides the base cell to
+`flex: 1 1 150px; width: auto; max-width: 260px`. The rest of a row is fixed
+(chevron 15 + title 168 + two 10px gaps = 203), so a 461px column would
+otherwise end every row 108px short of its own right edge and the deck would
+look ragged down that edge. Growing the *control* spends it usefully, and since
+every column in the region is the same width, every track still starts and ends
+on the same two x positions — the property the cell's fixed `width: 150px` was
+protecting in the first place.
+
+**Flyout rows are excluded deliberately.** They live in the rail's fixed 285px
+against `.lg-flyout-name { flex: 1 }`; letting the cell grow there splits the
+free space with the name and the lever names (already ellipsised) lose ~40px.
+
+`.lg-rail-col`'s own `flex: 0 0 0px` / `.is-open { flex-basis: 285px }` still
+win over the new `.lg-col` rule — equal specificity, later in the file. Nothing
+in `dashboard.js` needed changing: it moves the rail with
+`chevron.closest('.lg-col').after(railCol)` and measures via
+`railCol.parentElement`, both of which now resolve inside `.lg-cols`. The one
+behaviour change is that an outside-click on the Insights panel now closes an
+open flyout (it is outside `railCol.parentElement`), which is the correct
+reading of "click outside".
+
+### Verified through the CDP driver, real pixels
+
+| | 1366×768 (scale 0.700) | 1920×1080 (0.946) | 3440×1440 (1.293) |
+|---|---|---|---|
+| region, closed → open | 1025 → 1025 | 1384 → 1384 | 1893 → 1893 |
+| column, closed → open | 314 → 247 | 424 → 334 | 579 → 457 |
+| Insights left edge | 1070 both | 1445 both | 1976 both |
+| horizontal overflow | none | none | none |
+
+i.e. the columns give up ~90px each to the rail and take it back on close,
+while the panel does not move a pixel in either direction. Opening a flyout in
+the *third* column (Costs) gives identical numbers to the first (Transport),
+which is the wrapper doing its job — the rail's position within the region
+doesn't change the region.
+
+Logical widths check out too: 424 / 0.946 = 448px closed, 334 / 0.946 = 353px
+open, exactly the derived figure. Track 150 → ~241 logical closed, back to ~146
+open, never below the cell's 96px floor.
+
+### Known cost, accepted
+
+On a very wide screen the band now ends before the window does — ~176px of
+empty at 1920, but **~1060px at 3440**, because the region is a fixed width by
+design. That is inherent to "put it near the levers": the alternative is the
+gap the user asked to remove, just relocated. Letting `.lg-cols` grow was
+considered and rejected — it only moves the dead space from the end of the band
+to the end of every row (the track caps at 260) and stretches the columns to
+~600px, which is the "four islands with a lot of nothing between them" problem
+the clustering was introduced to fix.
+
+### Environment note (again)
+
+The stale-Flask-process trap from the previous session repeated **exactly** as
+documented: a server from an earlier session was still listening on 5051 and
+served the *old* `base.py` HTML while the new CSS loaded fresh from disk, so
+the first screenshot showed the columns spreading to the window's edge and
+`.lg-cols` returning `null`. Diagnosed in one step by grepping the served HTML
+for the new class — if a Python change doesn't appear, it is this. Kill by
+port, not by name:
+
+```powershell
+Get-NetTCPConnection -LocalPort 5051 -State Listen |
+  ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+```
+
+Also: `tools/devtools/cdp_driver.js` hardcodes
+`C:\Program Files\Google\Chrome\Application\chrome.exe`. Chrome on this machine
+is the **32-bit path**, `C:\Program Files (x86)\Google\...`, so the driver dies
+with `ENOENT` on spawn. Worked around with a scratchpad copy this session; the
+driver could take a candidate list if it bites again.

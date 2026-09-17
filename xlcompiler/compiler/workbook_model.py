@@ -286,7 +286,7 @@ class WorkbookModel:
         z.close()
         if verbose: print(f"    zip fallback recovered {count} tables")
         return count
-
+    
     def get_cell(self, sheet: str, row: int, col: int) -> CellModel | None:
         return self.cells.get((sheet, row, col))
 
