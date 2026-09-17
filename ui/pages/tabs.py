@@ -11,9 +11,8 @@ puts on screen:
                 tonnes of CO2e, % import reliance, hectares, litres, minerals.
   Economy     — money and ratios: Billion INR, and the intensity indicators.
 
-Critical Minerals is also the one tab with no model behind it yet (its page is
-a "coming soon" note), so it is marked as upcoming rather than sitting in the
-row looking like the other eight.
+All nine tabs are now built; UPCOMING_TABS is empty but kept, since a tab
+landing before its model is a recurring state worth having a marker for.
 """
 
 from outputs import CHART_YEAR_LABELS
@@ -40,7 +39,7 @@ TAB_GROUPS = [
 
 # Tabs whose page is a placeholder. Kept clickable (the page says so itself)
 # but visually marked, because "there is nothing here yet" is real structure.
-UPCOMING_TABS = {"Critical Minerals"}
+UPCOMING_TABS = set()
 
 # The Sankey is the one purpose-built view (full-bleed, own control strip —
 # see energy_flows.py) and its tab is allowed to say so.

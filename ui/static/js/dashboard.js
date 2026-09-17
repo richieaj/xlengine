@@ -146,6 +146,18 @@ const SERIES_COLOR = {
   // ── emissions by sector ───────────────────────────────────────────────
   "Fuel Production": PALETTE.ink,
   "Refineries": PALETTE.slate,
+  // ── PV technologies (Critical Minerals tab) ───────────────────────────
+  // Grouped by family so the stack reads as a story rather than a list:
+  // crystalline silicon in blues, thin film warm, perovskite violet. These
+  // appear on one chart only, so reuse against non-PV series above is safe.
+  "Monocrystalline Silicon (mono-Si) PV": PALETTE.dpblue,
+  "Polycrystalline Silicon (poly-Si) PV": PALETTE.blue,
+  "Heterojunction Silicon (HJT) PV": PALETTE.cyan,
+  "CIGS Thin-Film PV": PALETTE.amber,
+  "Amorphous Silicon (a-Si) Thin-Film PV": PALETTE.yellow,
+  "Cadmium Telluride (CdTe)": PALETTE.pink,
+  "Perovskite/Silicon Tandem": PALETTE.ltviolet,
+  "Perovskite APT": PALETTE.violet,
   // ── aggregate line ────────────────────────────────────────────────────
   "Total": "#1b1d29",
 };
@@ -993,6 +1005,112 @@ function renderBarChart(canvasId, chartData, opts) {
   }
 }
 
+// Ranked horizontal bars on a LOG axis. renderBarChart above can't be reused:
+// it takes chartData.years as labels, titles the x-axis "Year", and pins a
+// linear y to min 0.
+//
+// Log is not a stylistic choice here. 2047 mineral demand runs from 2.98M
+// tonnes (aluminium) to 0.046 t (lithium) — 7.8 orders of magnitude. On a
+// linear axis every mineral below copper is a zero-width bar. The cost is that
+// bar LENGTH is no longer proportional to quantity, so the value is printed at
+// the end of every bar: the number is the quantity, the bar is only the rank.
+//
+// Two colours encode `emergent` — minerals with no demand at all in 2022, which
+// appear only once perovskite and thin-film technologies enter the mix. That
+// carries the growth story a single-year snapshot would otherwise lose.
+function renderRankedBarChart(canvasId, chartData, opts) {
+  opts = opts || {};
+  const unit = opts.unit || "";
+  const base = opts.color || PALETTE.blue;
+  const emergentColor = opts.emergentColor || PALETTE.violet;
+  const emergent = chartData.emergent || [];
+  const ctx = document.getElementById(canvasId);
+  const data = {
+    labels: chartData.labels,
+    datasets: [{
+      label: unit,
+      data: chartData.values,
+      backgroundColor: chartData.values.map((_, i) => (emergent[i] ? emergentColor : base)),
+      borderRadius: 3,
+      // Chart.js clamps a log bar's base to the lowest positive value; without
+      // a floor a mineral at 0 would silently vanish rather than read as zero.
+      minBarLength: 2,
+    }],
+  };
+  const config = {
+    type: "bar",
+    data,
+    options: {
+      // responsive:false is deliberate — see resizeChartsToContainers.
+      responsive: false,
+      indexAxis: "y",
+      layout: { padding: { right: 72 } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (c) => formatSeriesValue(c.parsed.x, unit) +
+              (emergent[c.dataIndex] ? "  (none in 2022)" : ""),
+          },
+        },
+        rankedValueLabels: true,
+      },
+      scales: {
+        x: xAxis(unit ? `Demand (${unit}, log scale)` : "log scale", {
+          type: "logarithmic",
+          grid: { display: true, color: "#EDEDE8", drawTicks: false },
+          ticks: {
+            color: AXIS_TEXT,
+            font: TYPE.axis,
+            autoSkip: false,
+            // Decades only. Chart.js's log scale otherwise emits every
+            // "nice" value it can fit (0.01, 0.03, 0.06, 0.08, 0.1, 0.2 ...),
+            // which across eight orders of magnitude collides into an
+            // unreadable smear. Powers of ten are also the only gridlines a
+            // reader can actually use on a log axis.
+            callback: (v) => {
+              const l = Math.log10(v);
+              return Math.abs(l - Math.round(l)) < 1e-9 ? formatCompact(v) : "";
+            },
+          },
+        }),
+        y: yAxis("", { grid: { display: false } }),
+      },
+    },
+    plugins: [rankedValueLabelPlugin],
+  };
+  if (!charts[canvasId]) {
+    charts[canvasId] = newSizedChart(canvasId, ctx, config);
+  } else {
+    charts[canvasId].data = data;
+    charts[canvasId].update();
+  }
+}
+
+// Prints each bar's actual value at its end. Mandatory for the log chart above,
+// not decoration: on a log axis a bar twice as long is not twice the value, so
+// the printed number is the only honest statement of quantity.
+const rankedValueLabelPlugin = {
+  id: "rankedValueLabels",
+  afterDatasetsDraw(chart, _args, pluginOpts) {
+    if (!pluginOpts) return;
+    const { ctx } = chart;
+    const meta = chart.getDatasetMeta(0);
+    const values = chart.data.datasets[0].data;
+    ctx.save();
+    ctx.font = `${TYPE.axis.size}px ${FONT_SANS}`;
+    ctx.fillStyle = AXIS_TEXT;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    meta.data.forEach((bar, i) => {
+      const v = values[i];
+      const text = v >= 1000 ? formatCompact(v) : (v >= 1 ? v.toFixed(0) : v.toFixed(3));
+      ctx.fillText(text, bar.x + 6, bar.y);
+    });
+    ctx.restore();
+  },
+};
+
 // ---------- Request queue: at most one model request in flight at a time.
 // Rapid lever clicks or preset switches queue their *intent*, not a request —
 // a newer intent replaces whatever was waiting, so a burst of clicks costs
@@ -1613,6 +1731,12 @@ function applyResult(data) {
   }
   if (data.water_use_chart) {
     renderStackedChart("waterUseChart", data.water_use_chart, null, { unit: "Litres", compact: true, legendPosition: "right" });
+  }
+  if (data.crm_capacity_chart) {
+    renderStackedChart("crmCapacityChart", data.crm_capacity_chart, null, { unit: "GW", legendPosition: "right" });
+  }
+  if (data.crm_mineral_rank_chart) {
+    renderRankedBarChart("crmMineralRankChart", data.crm_mineral_rank_chart, { unit: "t" });
   }
   if (data.electricity_demand_chart) {
     renderStackedChart("electricityDemandChart", data.electricity_demand_chart,

@@ -802,6 +802,12 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
 .subview { display: none; }
 .subview.active { display: block; }
 .coming-soon-note { color: var(--muted); font: var(--t-body); background: #fff; border: 1px dashed var(--line); border-radius: 12px; padding: 24px; text-align: center; }
+/* A scope/method note that belongs to a whole view rather than one chart.
+   .card-sub is scoped to .card and so can't be reused outside one. Sits
+   between the KPI row and the charts, where it is read before the numbers
+   rather than after them. */
+.view-note { font: var(--t-label); color: var(--muted); margin: 2px 0 12px; max-width: 105ch; line-height: 1.5; }
+.view-note strong { color: var(--ink); font-weight: 600; }
 
 /* ── Energy Flows — the one view that is not on the page's grid ──────────
    Everything else here is a section inside .page's inset. This tab breaks

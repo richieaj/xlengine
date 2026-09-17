@@ -318,6 +318,66 @@ WATER_USE_ROWS = [
     ("Green Hydrogen", 12),
 ]
 WATER_USE_TOTAL_ROW = 17
+
+# ── Critical Minerals ──────────────────────────────────────────────────────
+# The sheet models one chain and only one: utility solar PV capacity (GW) ->
+# a mix across 8 PV technologies -> mineral demand (tonnes), via a hardcoded
+# intensity matrix in tonnes/GW (D21:U28). Rooftop PV, wind, storage and grid
+# are absent from it entirely, which is why Control!E13 (Solar Photovoltaic)
+# is the ONLY lever that moves anything here — see the scope note in
+# pages/critical_minerals.py.
+#
+# Columns D..I are 2022..2047, matching CHART_YEAR_LABELS exactly. The sheet
+# also has a 2020 column (C) which is dropped by simply never listing it.
+CRM_SHEET = "Critical Minerals"
+CRM_YEAR_COLS = ["D", "E", "F", "G", "H", "I"]  # 2022..2047
+CRM_YEAR_2047_COL = "I"
+CRM_YEAR_2022_COL = "D"
+
+# Capacity by technology (rows 58-65), total in row 38. Labels are hardcoded
+# rather than read from column B at runtime: the sheet's own labels carry a
+# trailing space ("Perovskite APT ") which would silently miss its
+# SERIES_COLOR entry and fall back to a positional colour.
+CRM_TECH_ROWS = [
+    ("Monocrystalline Silicon (mono-Si) PV", 58),
+    ("Polycrystalline Silicon (poly-Si) PV", 59),
+    ("Heterojunction Silicon (HJT) PV", 60),
+    ("CIGS Thin-Film PV", 61),
+    ("Amorphous Silicon (a-Si) Thin-Film PV", 62),
+    ("Cadmium Telluride (CdTe)", 63),
+    ("Perovskite/Silicon Tandem", 64),
+    ("Perovskite APT", 65),
+]
+CRM_CAPACITY_TOTAL_ROW = 38
+
+# Mineral demand, rows 70-87, in tonnes. Display names are corrected here:
+# the sheet's K16 reads "Galium (Ga)". The row mapping stays keyed to the
+# sheet, only the label is fixed.
+CRM_MINERAL_ROWS = [
+    ("Aluminium (Al)", 70),
+    ("Nickel (Ni)", 71),
+    ("Tin (Sn)", 72),
+    ("Copper (Cu)", 73),
+    ("Silicon (Si)", 74),
+    ("Silver (Ag)", 75),
+    ("Indium (In)", 76),
+    ("Gallium (Ga)", 77),      # sheet says "Galium"
+    ("Selenium (Se)", 78),
+    ("Cadmium (Cd)", 79),
+    ("Tellurium (Te)", 80),
+    ("Molybdenum (Mo)", 81),
+    ("Tungsten (W)", 82),
+    ("Graphite", 83),
+    ("Zinc (Zn)", 84),
+    ("Titanium (Ti)", 85),
+    ("Lithium (Li)", 86),
+    ("Germanium (Ge)", 87),
+]
+# Minerals whose thin-film carriers (a-Si, CIGS, CdTe) lose share over the
+# horizon, so their demand can FALL while total capacity keeps rising.
+# Germanium is the clearest case: it comes only from a-Si.
+CRM_THINFILM_MINERALS = ("Germanium (Ge)", "Gallium (Ga)", "Selenium (Se)",
+                         "Indium (In)", "Tellurium (Te)", "Cadmium (Cd)")
 # above. Demand-side rows (55-63) are per-sector; grouped here to the closest
 # real breakdown available (Residential+Commercial -> Buildings; Hydrogen +
 # Refineries folded into Miscellaneous, since the sheet doesn't split them
@@ -632,6 +692,49 @@ def compute_water_use_chart(eng):
     return {"years": CHART_YEAR_LABELS, "series": series, "total": total}
 
 
+def compute_crm_capacity_chart(eng):
+    """Solar PV capacity by technology — the driver of every mineral figure.
+
+    On the tab this doubles as the scope statement: it is a live number that
+    visibly moves with the Solar PV lever and visibly does not with any other,
+    so an unchanged tab reads as "the input didn't change" rather than "this is
+    broken"."""
+    series = {
+        name: [round(eng.read_cell(CRM_SHEET, f"{col}{row}") or 0.0, 2) for col in CRM_YEAR_COLS]
+        for name, row in CRM_TECH_ROWS
+    }
+    total = [round(eng.read_cell(CRM_SHEET, f"{col}{CRM_CAPACITY_TOTAL_ROW}") or 0.0, 2)
+             for col in CRM_YEAR_COLS]
+    return {"years": CHART_YEAR_LABELS, "series": series, "total": total}
+
+
+def compute_crm_mineral_rank_chart(eng):
+    """2047 mineral demand, ranked, for a log-scale horizontal bar chart.
+
+    Not the usual {years, series, total} shape, and deliberately single-year:
+    demand spans 7.8 orders of magnitude in 2047 (aluminium 2.98M t vs lithium
+    0.046 t), so a stacked time series would be 100% Al+Cu+Si with everything
+    else an invisible hairline. A log axis fixes the spread but cannot plot
+    zero — and seven minerals are exactly 0 in 2022, only appearing once the
+    perovskite technologies enter after 2032. Hence one year, ranked.
+
+    `emergent` carries the growth story the single-year view would otherwise
+    lose: it flags the minerals absent in 2022, which the chart renders in a
+    second colour instead of needing another chart."""
+    rows = []
+    for name, row in CRM_MINERAL_ROWS:
+        v2047 = round(eng.read_cell(CRM_SHEET, f"{CRM_YEAR_2047_COL}{row}") or 0.0, 3)
+        v2022 = eng.read_cell(CRM_SHEET, f"{CRM_YEAR_2022_COL}{row}") or 0.0
+        rows.append((name, v2047, v2022 <= 0.0))
+    rows.sort(key=lambda r: -r[1])
+    return {
+        "labels":   [r[0] for r in rows],
+        "values":   [r[1] for r in rows],
+        "emergent": [r[2] for r in rows],
+        "unit": "t",
+    }
+
+
 def _sum_rows(eng, rows, col):
     return sum(eng.read_cell("IESS V3 Results", f"{col}{r}") or 0.0 for r in rows)
 
@@ -752,6 +855,12 @@ def compute_outputs(eng, defer=()):
         "opex_chart": compute_opex_chart(eng),
         "land_use_chart": compute_land_use_chart(eng),
         "water_use_chart": compute_water_use_chart(eng),
+        # Not deferred: ~70 floats total, and the tab's whole credibility rests
+        # on responding instantly to the Solar PV lever. Routing it through
+        # /deferred would add a round trip to exactly the interaction it exists
+        # to demonstrate.
+        "crm_capacity_chart": compute_crm_capacity_chart(eng),
+        "crm_mineral_rank_chart": compute_crm_mineral_rank_chart(eng),
         "emissions_intensity_chart": compute_emissions_intensity_chart(eng),
         "electricity_demand_chart": compute_electricity_demand_chart(eng),
         "electricity_supply_chart": compute_electricity_supply_chart(eng),
