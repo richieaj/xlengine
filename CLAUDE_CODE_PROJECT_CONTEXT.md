@@ -4557,9 +4557,11 @@ Investigated ahead of writing this plan, since the whole project was developed o
 
 ---
 
-## Session Notes (2026-09-18) — UI pass: KPI row rebuilt twice, Energy Flows made a standalone Sankey-only tab, the footer pinned (which broke `--ui-scale` and had to be fixed properly), the Sankey sized by measurement instead of arithmetic, the masthead wordmark, and the pathway chip made to carry its effort level. **All UI-layer. No engine, no `ui/outputs.py` compute change — no model number moved.**
+## Session Notes (2026-09-18) — UI pass: KPI row rebuilt twice, Energy Flows made a standalone Sankey-only tab, the footer pinned (which broke `--ui-scale` and had to be fixed properly), the Sankey sized by measurement instead of arithmetic, the masthead wordmark, the pathway chip made to carry its effort level, two new coming-soon tabs, and everything pushed to GitHub. **All UI-layer. No engine, no `ui/outputs.py` compute change — no model number moved by this session.**
 
-Entirely CSS/JS/template work driven by the user looking at the running app. Files touched: `ui/static/css/dashboard.css`, `ui/static/js/dashboard.js`, `ui/pages/all_energy.py`, `ui/pages/tabs.py`, `ui/pages/base.py`, `ui/app.py` (one line).
+Entirely CSS/JS/template work driven by the user looking at the running app. Files touched: `ui/static/css/dashboard.css`, `ui/static/js/dashboard.js`, `ui/pages/all_energy.py`, `ui/pages/tabs.py`, `ui/pages/base.py`, `ui/app.py`, plus two new placeholder page modules and a first-ever `.gitignore`.
+
+**§10 is the one to read if you are picking this repo up cold** — it records what was pushed (including the *previous* session's uncommitted engine work, which had been sitting dirty), how the 222 modified golden fixtures were verified rather than trusted, and the repo-hygiene problems that were found and deliberately left alone.
 
 ### 1. The KPI row: three coloured cards → one white box → a grey tray of white blocks
 
@@ -4700,6 +4702,60 @@ The chevron is still a `background-image` on the select rather than an added ele
 
 `custom` is not a point on the ramp (no preset loaded) so it reads as unset — the neutral the dot already used, on the palest wash. `dashboard.js:1150` is the only writer of `data-level` and was not changed.
 
+### 8. Footer: ACPET spelled out
+
+`© 2026 NITI AAYOG | ACPET | DOWNLOADS: …` became `… | ASHOKA CENTRE FOR A PEOPLE-CENTRIC ENERGY TRANSITION | …`. The masthead logo already carries the short form, and the footer is the one place on the page with room to say who that is. `.site-footer` uppercases and letter-spaces its own text, so the longer name picked that up with no CSS change. It is a single centred line; at a narrow window it will wrap, which `line-height: 1.4` already handles.
+
+### 9. Two new coming-soon tabs: Mission LiFE and Health
+
+Added under **Impacts**, beside Critical Minerals — that is what they are, effects of the pathway on something other than energy. Mission LiFE is the behavioural demand-side programme; Health is the air-quality/outcomes side. Neither has a model behind it yet.
+
+They follow the existing placeholder pattern exactly, which is worth stating because it is three coordinated edits and missing one leaves a dead tab:
+
+1. **A page module** — `ui/pages/mission_life.py` and `ui/pages/health.py`, each a `render()` returning `<div class="view" id="view-…"><div class="coming-soon-note">… — coming soon</div></div>`. Copied from `critical_minerals.py`.
+2. **`ui/app.py`** — imported and appended to `PAGE_MODULES`, which is what concatenates the views into `__PAGES_HTML__`.
+3. **`ui/pages/tabs.py`** — added to `TAB_GROUPS` (the single source; `TABS` and `CLICKABLE_TABS` derive from it) **and** to `UPCOMING_TABS`, which is what marks them visually rather than letting them sit in the row looking like the tabs that compute something.
+
+Note the distinction the row already makes and that these follow: a tab with a `None` view renders as a disabled `<span>`, whereas these have real view ids and are clickable — they open a page that says "coming soon" itself. Keeping them clickable is deliberate; a disabled tab tells the reader less than a page that names what is planned.
+
+### 10. Pushed to GitHub — and what the repo looks like underneath
+
+Branch **`ui/kpi-tray-flows-tab-masthead`**, commit `cf59610`, pushed to `origin` (`github.com/richieaj/xlengine`). Branched rather than committing to `main`, matching the two merged PRs already in the history. PR not opened yet at time of writing.
+
+**The commit carries more than this session.** The previous session's work had never been committed — `ui/outputs.py`'s Coal-capacity fix, the regenerated `tests/golden/full` fixtures, `ui/cache_gc.py` and `tools/prune_cache.py` were all still sitting dirty in the working tree.
+
+**The golden fixtures were verified before committing, not trusted.** 222 files under `tests/golden/full` showed as modified, which on a project whose credibility rests on byte-identical fixtures is worth stopping for. They are single-line JSON so `git diff` is useless; a key-by-key comparison of `HEAD` against the working copy showed exactly three things, all expected:
+
+- `payload/capacity_chart/series/Coal Power Stations` — the series shifted by one year (`[230.69, 231.173, …, 0.0]` → `[210.635, 230.69, 231.173, …]`), i.e. precisely the documented Coal-capacity bug fix
+- `payload/capacity_chart/total` — follows from the above
+- `payload/emissions_2047_total` and `payload/kpis/clean_share` — two **added** fields
+
+The one-liner used, worth keeping for next time:
+
+```python
+old = json.loads(subprocess.run(['git','show','HEAD:'+p], capture_output=True, text=True, encoding='utf-8').stdout)
+new = json.load(open(p, encoding='utf-8'))
+# then walk both dicts and print ADDED / REMOVED / CHANGED with the path
+```
+
+**A `.gitignore` was added — there was none at all.** It ignores `__pycache__/`, `*.py[cod]` and `~$*.xlsx` (Excel's lock artifact). 41 tracked `.pyc` files were untracked with `git rm -r --cached`.
+
+**Repo hygiene problems found and deliberately NOT fixed** (flagged to the user, awaiting a decision — all are reversible and none block anything):
+
+- **1301 of 1621 tracked files are `cache/pathways/*.json.gz` blobs.** They are machine-generated, keyed by an engine fingerprint, and the fingerprint changed this session (`c3310dc324f8` → `c3310dc324f8a6153b0b`), so the commit carries ~1190 additions and ~1290 deletions of dead cache. `tools/precompute_pathways.py` regenerates them, and the Docker plan (§ "PROPOSED (2026-09-17)") builds them at image build time rather than shipping them — so untracking the directory would cost nothing and shrink the repo enormously.
+- **`workbook/IESS2047_Version_3.0.xlsx.compiled.pkl` is tracked at ~41 MB**, and is likewise regenerated from the workbook.
+- **Stray tracked files**: `jolinsonrichie-2026-07-13T11-11-01-208Z.json` (320 KB), `ui/debug_supply_chart.png`, and a repo-root `img/` copy that Flask never serves (its static root is `ui/static`).
+
+**Hosting was raised and not yet acted on.** The user asked where this could be hosted for a demo. The researched Dockerize plan already in this file is the prerequisite; the constraints that rule hosts in or out were restated: ~1 GB RAM (the engine holds a ~312 MB parsed model, so a 512 MB free tier will be tight or OOM), a multi-second cold start (pickle load plus one full `compute_outputs()` at import), and a disk cache that wants a persistent volume to stay warm. No host chosen yet.
+
 ### Verification status
 
-`tabs.py` render output and `dashboard.js` syntax were checked (`node --check`). **The app was not run in this session** — every change is CSS/template/JS visual work confirmed by the user against their own running instance, iteration by iteration. Anyone picking this up should restart the server (for the Python templates) *and* hard-refresh (static files are not `no-store`).
+What was actually checked:
+
+- `tabs.py`'s rendered HTML, after each change to `TAB_GROUPS` (the Flows group, then the two new tabs) — confirming the pills and the `active` year button come out right.
+- `dashboard.js` syntax, via `node --check`, after each JS edit.
+- `app.py`, `tabs.py` and the two new page modules via `py_compile`.
+- The `ICSS-logo-small.png` alpha channel and dominant type colour, via Pillow — which is what corrected a wrong comment about why it needs a plate.
+- The 222 modified golden fixtures, by key-by-key comparison against `HEAD` (see §10) — the only check here that touches model numbers.
+
+**The app itself was not run in this session.** Every visual change was confirmed by the user against their own running instance, iteration by iteration, and several were corrected on that basis (the KPI row twice, the `--ui-scale` collapse, the Sankey height). Anyone picking this up should restart the server — the Python templates are substituted at request time, so a running server will not show a `tabs.py` or `base.py` change on a refresh alone — *and* hard-refresh, since the static files are not served `no-store`.
