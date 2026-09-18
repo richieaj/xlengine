@@ -4354,3 +4354,352 @@ Also: `tools/devtools/cdp_driver.js` hardcodes
 is the **32-bit path**, `C:\Program Files (x86)\Google\...`, so the driver dies
 with `ENOENT` on spawn. Worked around with a scratchpad copy this session; the
 driver could take a candidate list if it bites again.
+
+## Session Notes (2026-09-17) — Diagnosed a Pylance false positive in `golden_master.py`; pushed the 2026-09-08 UI branch to GitHub (fixing a cross-account auth mismatch and a placeholder commit author along the way); pulled down a separate session's follow-on work from `main` and verified the merged build serves.
+
+### `tools/golden_master.py`: "Import could not be resolved" on `app`/`outputs` is Pylance, not a bug
+
+User flagged red squiggles on `import app as APP` and `from outputs import compute_outputs` (lines 40-41). Diagnosed rather than assumed:
+
+- `python tools/golden_master.py --help` exits 0 — the script runs.
+- `import app` with no path manipulation: `ModuleNotFoundError`. The same import after `sys.path.insert(0, "ui")` (lines 33-34, already in the file): resolves to `D:\vs\xlengine\ui\app.py`.
+- No `pyrightconfig.json`, `.vscode/settings.json`, or any linter installed anywhere in the repo — the warning is coming from the editor's bundled analyser (Pylance/pyright), which cannot see a runtime `sys.path.insert()` and looks for `app`/`outputs` next to the file or at the workspace root, finding neither.
+- The existing `# noqa: E402` on those lines suppresses a *different*, real flake8 complaint ("import not at top of file") caused by the imports sitting after the path-manipulation lines. That is handled; the unresolved-import warning is separate and was never addressed because it isn't a real error.
+
+**Not fixed, on the user's instruction ("leave it").** The fix, if ever wanted, is a repo-root `pyrightconfig.json` with `"extraPaths": ["ui", "xlcompiler"]` (or the VS-Code-local `.vscode/settings.json` equivalent) — editor-agnostic, and it would also fix the identical pattern in `tools/precompute_pathways.py` and enable real autocomplete on `APP.*`/`compute_outputs`. No file was added.
+
+### Pushed the 2026-09-08 session's work (fit/palette/Sankey commit) to GitHub
+
+The prior session (2026-09-08, this file's own entry above) had produced a full working tree of changes but never committed them to git. This session did:
+
+1. **Safety pass before touching git**: reviewed `git status`/`git diff --stat`, confirmed no `.gitignore` exists in the repo, grepped the full diff plus the new `tools/devtools/cdp_driver.js` for credential-shaped strings (API keys, tokens, `BEGIN ... PRIVATE KEY`, emails) — clean. Noted that 1234 of the 1260 untracked `cache/pathways/*.json.gz` files were *already* tracked from the initial commit, so committing the remaining 26 matched existing repo convention rather than introducing something new. User explicitly said not to gitignore anything and to commit exactly as-is, including the `__pycache__/*.pyc` files.
+2. Branched of `main` (`ui/viewport-fit-eucalc-palette-sankey`) rather than committing straight to `main`, staged everything (`git add -A`), and committed with a message summarising the 2026-09-08 session's actual changes (fit-to-window, Chart.js sizing fix, lever `min()`→`max()` bug, EU-Calc palette, Ranade, box removal, GHG gauge, Sankey interactivity) plus the known Energy-Flows-overflow issue.
+3. **First push attempt failed**: `remote: Permission to richieaj/xlengine.git denied to jolinsonrichie` (403). The machine's cached git credential was for a *different* GitHub account (`jolinsonrichie`) than the repo owner (`richieaj`) — confirmed these are the same person's two accounts, not a stranger's repo. Diagnosed by checking `git config user.name/email` (a local placeholder, unrelated) and by attempting `gh auth status` (CLI not installed on this machine).
+4. **Fix**: put the target username directly in the remote URL — `git remote set-url origin https://richieaj@github.com/richieaj/xlengine.git` — which was enough for the existing credential helper to offer the right cached credential without any interactive re-login. Push succeeded on the next attempt.
+5. **Commit author was a placeholder** (`richie <richie@example.com>`, from an unconfigured local `git config`), which would have shown on GitHub as an unlinked author with no avatar rather than attributing to `richieaj`. Fixed with `git config user.name/email` (the real `richieaj <jolinsonrichi27@gmail.com>`) + `git commit --amend --reset-author --no-edit` + `git push --force-with-lease` (safe here — nothing else had been pushed to the branch yet).
+6. **Verified the push landed** by re-fetching and comparing `git rev-parse HEAD` against `git rev-parse origin/<branch>` (must be byte-identical, not just "looks right in the terminal screenshot") — confirmed equal, working tree clean, zero unpushed commits, and the amended commit still carried all 52 files (+1942/−299).
+
+**Lesson worth keeping**: a remote 403 that mentions a username you don't recognise as "you" is very often "right repo, wrong locally-cached account" rather than "no access at all" — check `git remote -v`, the denied username in the error, and who the repo actually belongs to before concluding permissions are broken. Embedding the target username in the remote URL (`https://<user>@github.com/...`) is a low-friction way to steer an ambiguous credential helper without touching stored credentials directly.
+
+### Pulled: two PRs had been merged to `main`, including a substantial follow-on UI session by (apparently) a separate Claude Code session working on the `richieaj` account directly
+
+`git fetch` showed `main` 4 commits ahead. History on `origin`:
+
+```
+*   44641fb Merge PR #2 (ui/viewport-fit-eucalc-palette-sankey ← this session's push, PR #1, already merged as 82c8856)
+|\
+| * b22e9d5 "UI refresh, font tooling, and pathway cache assets" (ajrichie)
+* | 82c8856 Merge PR #1
+|\|
+| * 0da85af (this session's 2026-09-08 commit)
+|/
+* 75716c0 Initial commit
+```
+
+Both PRs were already merged by the time this session pulled — no merge conflict handling was needed, just `git checkout main && git pull --ff-only`. This file's own **2026-09-09 entries** (two of them, "Chart legend simplified..." and "Insights pulled back beside the levers...") turn out to *be* `b22e9d5` — so that work is already fully documented above; this entry does not repeat it, only records that it arrived via a separate push/merge this session had to reconcile with, and confirms it against the live server rather than trusting the diff alone.
+
+**Verified the pulled build actually serves**, since a merge can bring in a change that references an asset that isn't actually committed (this exact failure mode — a preload for a font file that doesn't exist — was worth specifically ruling out given `b22e9d5`'s summary mentions self-hosting a font):
+- Killed the stale dev server (still running pre-pull code) and restarted `ui/app.py` fresh.
+- `curl` against `/`, `/static/css/dashboard.css`, `/static/js/dashboard.js`, and the new `/static/fonts/roboto-var.woff2` — all **200**.
+- Confirmed `ui/static/fonts/roboto-var.woff2` (43.7 KB) is genuinely `git`-tracked, not merely present on disk (`git ls-files` — a merge can bring code that references a file while the file itself fails to land if it was gitignored or LFS-tracked elsewhere).
+- Grepped the served HTML for `fontshare|googleapis`: one match, which is the *comment* in `base.py` explaining why those CDN links were removed, not a live `<link>` — confirmed no external font `<link>`/`<script>`/`@import` remains anywhere in the served HTML or CSS.
+- Noted, not fixed: **six external `<script src>` still load off `cdn.jsdelivr.net`** (Chart.js + five d3 modules) — the same third-party-request exposure the font self-hosting was explicitly done to avoid ("this site sits next to a .gov.in domain"), just not yet applied to the JS libraries. Flagged to the user as the natural next target; also worth revisiting because self-hosting d3 would let the Sankey pull in real `d3-transition` instead of the CSS-animation workaround the 2026-09-08 session had to build around its absence.
+
+---
+
+## Session Notes (2026-09-17, cont'd) — Lever tooltip covering its own row (fixed); full codebase security/correctness audit; cache-directory janitor added; a real Coal-capacity data bug found and fixed
+
+### Lever tooltip could cover the row it was describing (fixed)
+
+Reported with a screenshot: hovering "Hydrogen Production for Telecom and Transport" (an `Other`-group deck row) showed the popup directly over the row's own label instead of clearly above/below it. Root cause in `initLeverTooltip()`'s `place()` (`ui/static/js/dashboard.js`): vertical placement was computed from the small `.lg-lever` track element's rect, and the final clamp to `.control-deck-h`'s bounds could slide the box back down onto the row's own label when there wasn't room to fully clear it on either side.
+
+**Fix:** `place()` now takes the whole row's rect (not just the lever track) for placement, picks whichever side (above/below) actually has room (or more room, if neither fully fits), and — since the band-edge clamp could still theoretically slide it back — added a final guard that forces the popup fully outside the row if it would still overlap after clamping, even past the band edge in a pathological case. General fix, not lever-specific.
+
+### Full codebase audit (user request: "find any flaw... any vulnerabilities everything")
+
+Two parallel review passes (Flask routes + evaluator; `outputs.py`/`levers.py`/`dashboard.js`) plus direct verification of every claim before acting on it — one reported finding turned out to be a false positive, caught by checking live cell values before writing a fix (see below). Findings, most-severe first:
+
+1. **Cross-user "what changed" state leak — confirmed real, NOT yet fixed.** `baseline_snapshot`/`baseline_levels` (`ui/app.py`, module-level globals) are written by `/set_scenario` and read by `/recalc`/`/pathway/<key>.json` — shared across every visitor, with no per-session scoping (no cookies, no `Flask session`). Concrete sequence: visitor A picks pathway L2 → global baseline becomes A's L2 state. Visitor B (different browser, same moment) picks L4 → baseline is now B's L4 state. A then drags one lever and hits `/recalc`: the returned **numbers stay correct** (pure function of A's own lever vector, per `canonical_levels()`), but the `changed`/`lever_changes`/`kpi_deltas` fields are diffed against B's baseline, not A's — A sees a nonsensical "what changed since your pathway" summary. This is the same gap the project's own 2026-08-07 session flagged as "Phase 3: multi-user per-session engine, not started" — confirmed still open today, and now traced to the exact mechanism (a global diff *target*, not just a global engine). **Not fixed this session** — a real fix means either per-session baseline storage (a cookie/session id keyed dict) or, more simply given the existing architecture, having the client hold its own baseline's `pathway_key` and send it back on `/recalc` so the server can `cache_get()` it instead of touching any global — this is a genuinely different design decision from "make the engine per-session", worth its own approval before implementing.
+2. **No rate limiting / request size cap — confirmed real, NOT yet fixed.** `/recalc`/`/deferred` accept any JSON body with no per-IP throttle and no `MAX_CONTENT_LENGTH`. A single client cycling through many distinct *uncached* lever vectors (each ~1.8s, fully serialized behind the one process-wide `MODEL_LOCK`, by design) queues behind every other visitor's request too — the blast radius is server-wide, not self-limited to the abusive client. Not exploitable for anything beyond availability (no data exposure), but worth a basic per-IP rate limit + `MAX_CONTENT_LENGTH` before any real launch traffic, especially since the model's own single-threaded contract means this can't be parallelized away by more threads.
+3. **Real, confirmed data bug — `ui/outputs.py`'s `compute_capacity_chart()`, Coal Power Stations series read the wrong (shifted) columns. FIXED.** Sheet `I.b`'s year columns are laid out one column earlier than every other technology sheet — already discovered and fixed once before for the *generation* chart (`compute_electricity_supply_chart`, via `_IB_SHEET_YEAR_COLS`), but the Installed Capacity chart's `CAPACITY_ROWS["Coal Power Stations"]` (same sheet, row 465) was never given the same fix. Verified directly against live cell values before fixing (not assumed): `I.b!J465` is blank (0) exactly like `I.b!J470` is, and `I.b!D465..I465` hold six real, smoothly-rising values — meaning the chart was silently reading each year one column ahead of where it should, landing on a blank cell for 2047 (showing **0 GW** for Coal capacity in the most important year) instead of ~339.9 GW, with every other year shifted forward by one period. **Fix:** applied the exact same `_IB_SHEET_YEAR_COLS` override already used by the generation chart. **Verified via the golden-master suite**, both `quick` (10 vectors) and `full` (221 vectors): the *only* differing key path anywhere, across every vector, is `/capacity_chart/series/Coal Power Stations[0]` (the 2022/base-year value) — and after the fix that value is a **constant 210.635 across every single lever vector tested**, including wildly different presets and 200 randomised mixed states, which is exactly what a historical base-year figure should do (lever-invariant) and is strong independent confirmation the fix is correct, not just plausible. Golden-master baselines recaptured (both profiles) after confirming. **The disk cache had to be force-cleared separately** — `WORKBOOK_FP`/`OUTPUT_FP` only change when the workbook file or the *set of output field names* changes, not when one field's internal computation is corrected, so the existing cached entries would have kept serving the old wrong values for up to 5 days otherwise. Cleared with `tools/prune_cache.py --max-age-days 0 --no-keep-frontier`, then `tools/precompute_pathways.py` re-run to refill the frontier with corrected data. **Worth remembering**: a code-only fix to an existing output's *values* is invisible to the schema fingerprint — always force-clear the cache after one, the fingerprint alone won't catch it.
+4. **False positive, checked and ruled out — do not "fix" this.** One review pass flagged `EMISSIONS_SECTOR_GROUPS` (`ui/outputs.py`) for silently omitting row 182 ("sector VIII") from the Emissions-by-sector chart. Checked directly against the workbook before touching anything: row 182's own label cell reads literally `0` (not text) and every year's value is `0` — it's a genuine blank spacer row within the I-XVII block, not a real sector, and the existing grouping (which already excludes it) reproduces the sheet's own total row (192) exactly to the decimal at every year checked. No change made.
+5. **Sankey tooltip built via unescaped string concatenation into `innerHTML` — FIXED, low real-world likelihood.** `renderSankey()`'s link/node tooltips (`ui/static/js/dashboard.js`) concatenated `d.name`/`d.source.name`/`d.target.name` — sourced from the workbook's own `Flows` sheet via `read_flows()`, not real end-user input — directly into an HTML string assigned via `innerHTML`, unlike every other place on the page that mixes workbook-sourced text into markup (the lever tooltip and Insights panel both deliberately use `textContent`/DOM construction to avoid exactly this). A future edit to the Flows sheet's node names that introduced a literal `<` would render as markup. Added a small `escapeHtml()` helper and applied it at all three interpolation sites — cheap, general, closes the one gap in an otherwise-consistent pattern. Not a live threat today (workbook edits are trusted-author-only), but free to fix.
+6. **`pickle.load()` on `<workbook>.compiled.pkl` with no integrity check — latent, not currently exploitable.** `xlcompiler/compiler/workbook_model.py`'s cache load path. Not reachable today (fixed local path, team-controlled workbook directory, no upload feature, no network involvement) — flagged only as a thing to revisit (hash-pin the pkl, or a safer serialization) if the deployment model ever changes to put that directory on a lower-trust shared volume or add a "bring your own workbook" feature.
+7. **`CHOOSE` still eager-evaluates all branches — known, already-accepted, still-open latent risk, not new.** Same class of bug as the historical `IF`/`IFERROR` fixes (a never-reached branch with a self-referential formula could manufacture a false circular reference); the project's own doc already explicitly scoped `CHOOSE` out as "no evidence it's implicated" when `IF` was fixed. Re-confirmed still true, not re-litigated.
+8. **`/pathway/<key>.json` path traversal — checked, ruled out, not an issue.** Flask's default `<key>` string-segment converter rejects any value containing `/`, and percent-encoded slashes are decoded before route matching, so a traversal attempt never reaches `_disk_path()`. No fix needed.
+9. **Missing security headers (CSP, `X-Frame-Options`, etc.) — low priority given the app's shape.** No login, no per-user sensitive state, no data submission to CSRF or clickjack. `X-Content-Type-Options: nosniff` would be the one cheap, honestly-worthwhile addition; not done this session, no urgency identified.
+
+### Cache-directory janitor added (user request: stop the on-disk cache piling up)
+
+Confirmed the concern was already real and visible before writing anything: at the time this was checked, **1,264 of 1,304 files (97%) in `cache/pathways/` were already permanently dead** — orphaned from a retired output-schema fingerprint (`OUTPUT_FP` had changed since those files were written) and unable to ever be served again, with nothing removing them.
+
+**New `ui/cache_gc.py`** — pure filesystem `prune(cache_dir, keep_prefix, max_age_seconds, keep_keys=None, dry_run=False)`, no import of `app.py` or the model (so no circular-import risk, and it never touches `MODEL_LOCK`). Deletes (a) any file whose fingerprint prefix doesn't match the currently-running server's `WORKBOOK_FP+OUTPUT_FP` — dead weight, unconditionally, regardless of age, since it can never be served again — and (b) files matching the current fingerprint that are older than `max_age_seconds` and not in an optional `keep_keys` set. Also cleans up orphaned `*.tmp-<pid>-<tid>` files (from `cache_put`'s write-then-rename) once they're old enough that they can't still be a write genuinely in flight.
+
+**`ui/app.py`**: `enumerate_frontier()` (the 4 presets + every single-lever deviation, ~596 states) moved here from `tools/precompute_pathways.py` so there's one definition, imported back into that script rather than duplicated. A new `start_cache_janitor()` runs the prune once at startup (synchronously, cheap — a `stat()` per file, no model work) and then once a day in a background thread, with the frontier kept exempt from age-based pruning so it never itself goes cold. **Default max age: 5 days** (`IESS_CACHE_MAX_AGE_DAYS` env var), matching the user's own ask ("cleared every 5 days or something like that") — implemented as a rolling per-file TTL checked daily, not an all-at-once wipe, so there's no thundering-herd of simultaneous recomputation right after each clear.
+
+**A real bug caught before it shipped, worth remembering**: the first version called `_run_cache_prune()` unconditionally at module scope, which meant `tools/prune_cache.py`'s own `--dry-run` flag was a lie — importing `app.py` to reuse its config/frontier helpers had already deleted files for real before the CLI script's own (supposedly dry) logic ever ran. Caught by testing the dry-run and noticing files were already gone. **Fixed** by moving the startup prune + thread-spawn into `start_cache_janitor()`, called only from `if __name__ == "__main__":` — so it fires under the documented real invocation (`python -u app.py`) but not when another script merely imports `app` for its globals. Trade-off, noted: this also means the automatic janitor would NOT start under a future `gunicorn`-style import-only deployment — `tools/prune_cache.py` (Task Scheduler/cron) remains the fallback for that shape.
+
+**`tools/prune_cache.py`** — new CLI wrapper around the same `prune()`, for anyone who'd rather drive it externally or run it once by hand; loads the workbook the same way `precompute_pathways.py` already does so the fingerprint/frontier can't drift from what the live server would compute.
+
+**Verified end-to-end**: dry-run correctly reported "would delete: 0" with no side effects once the bug above was fixed; a real run correctly identified and removed exactly the 1,264 known-dead files, kept the 40 live ones; a fresh `python -u app.py` start logged `cache prune: kept 40, deleted 0` at startup, confirming the janitor fires under the real invocation path. **Also found and cleaned up in passing**: two duplicate stale `python app.py` processes were already simultaneously bound to port 5051 before this session's own testing even began (the same recurring class of bug documented at least 6 times earlier in this file) — confirmed with the user before killing them.
+
+### Both open items resolved same session, per explicit user decision
+
+User chose **client-echoed baseline key** (not per-session server storage) for the cross-user leak, and **yes** to adding rate limiting, with one clarifying constraint: it must not cap total site traffic, since the site may need to serve 10+ lakh (1,000,000+) distinct visitors.
+
+**Cross-user baseline fix, implemented.** `baseline_snapshot`/`baseline_levels` (the mutable globals) are gone entirely. `ui/app.py` now has a small bounded in-memory map (`_levels_by_key`, mirrors `_mem_cache`'s OrderedDict-with-max-size pattern) that `compute_pathway()` populates on every call (hit or miss) via `_remember_levels(key, canonical_levels(levels))` — so any `pathway_key` currently in circulation can be resolved back to its lever vector a moment later. `_baseline_state(baseline_key)` looks up both the vector (from that map) and the data (`cache_get(key)`, already existed) — `(None, None)` if the key is missing/unrecognised (e.g. after a restart), matching the existing "no baseline yet" convention. `/set_scenario` no longer touches any global; the client (`dashboard.js`'s `myBaselineKey`, replacing a long-dead unused `baseline` variable) stores the response's own `pathway_key` and echoes it back as `baseline_key` on every later `/recalc`. `/recalc`'s wire format changed from a bare levers dict to `{"levers": {...}, "baseline_key": "..."}` — client and server updated together, no other consumer of this endpoint exists. `/pathway/<key>.json` (dormant — not yet called by the real client, see 2026-09-04's "Not yet done") takes the same `baseline_key` as a `?baseline_key=` query param instead, with a note that a CDN fronting this route should key its cache on the full URL including the query string once it's actually wired up.
+
+**Verified live** (not just read the diff): started the real server, simulated two concurrent visitors on genuinely different pathways (A picks L2, B picks L4 moments later), had A tweak one lever and confirmed A's `lever_changes`/`kpi_deltas`/`changed` are diffed against **A's own** L2 baseline — completely unaffected by B ever having existed. Also verified malformed bodies (`/recalc` with no JSON body, an empty `{}`, `levers` as a list, `/set_scenario` with no `level`) all degrade to a defined result or a clean 400, never a 500 — `canonical_levels()` was hardened to treat a non-dict/junk `levels` the same as "omitted" (default 1) rather than raising.
+
+**A real bug caught mid-testing, worth remembering as its own lesson**: the first live test of the cross-user fix produced nonsense results (a baseline that looked like neither A's nor B's pathway) — traced to **two server processes simultaneously listening on port 5051**, one from ~30 minutes earlier in the same session (pre-dating the baseline refactor, still speaking the OLD `/recalc` wire format) and one freshly started with the new code. Requests were routing nondeterministically between them, so some hit old code that treated the new `{"levers":..., "baseline_key":...}` wrapper as if it WERE the levers dict — defaulting every real lever to 1. This is the exact recurring duplicate-stale-process class of bug documented at least 7 times now across this file; the fix was the same as always (find both PIDs, kill the stale one, confirm exactly one listener), but it's worth flagging that even careful "verified live" testing isn't immune to it — check `netstat`/`Get-NetTCPConnection` for a duplicate BEFORE trusting a confusing live-test result, not after.
+
+**A second real bug caught before it could ship — in the cache janitor added earlier in this same session.** `ui/cache_gc.py`'s `prune()` used `name.startswith(keep_prefix)` to decide whether a cache file matched the current workbook/output fingerprint. That's wrong for any key with its OWN prefix ahead of the fingerprint — and one already existed: `app.py`'s `"deferred-" + pathway_key()` keys (the Sankey + emissions-by-sector bundle, 596 files). `deferred-c3310dc324f8a6153b0b-<hash>.json.gz` does not *start with* `c3310dc324f8a6153b0b` even though it fully matches — so the janitor's daily run would have flagged and deleted the entire deferred bundle as "dead," forever, every single day. Confirmed directly: after the earlier prune ran once, `ls cache/pathways` showed exactly the 596 `c3310dc324f8a6153b0b*` files and zero `deferred-*` ones survived. **Fixed** by changing the check to `keep_prefix not in name` (substring, not prefix) — a 20-hex-char fingerprint is not going to collide by accident, and this is now also correct for any future key naming that wraps the fingerprint in its own prefix/suffix. Re-verified: a fresh dry-run after the fix reports `kept: 1192` (both the 596 main + 596 deferred entries), `would delete: 0`.
+
+**Rate limiting, implemented — a per-visitor cap, not a site-wide one, addressing the "10+ lakh users" concern directly.** `IESS_RATE_LIMIT_MAX`/`IESS_RATE_LIMIT_WINDOW` (default 120 requests / 60s **per client IP**) on `/set_scenario`, `/recalc`, `/deferred` — a bounded in-memory sliding-window counter (`_rate_buckets`, evicts the oldest-touched IP once 20,000 distinct IPs are tracked), failing OPEN on any internal error so a limiter bug can never be the reason a real request is refused. This does not limit how many *different* visitors the site serves at once — that's the response cache's job, and a cache hit costs a few milliseconds with no lock involved regardless of this limiter — it only stops one single client from firing far faster than a human plausibly can (a real lever-drag is already throttled well below 120/60s by the client's own 250ms debounce + one-request-in-flight queue). Also added `MAX_CONTENT_LENGTH` (64 KB default, `IESS_MAX_CONTENT_LENGTH`) since a real lever payload is under 2 KB. **Verified**: 125 rapid requests from one simulated client → exactly 120 succeed, the remaining 5 get a clean `429` with `Retry-After`; two different simulated client IPs (via `X-Forwarded-For`, since this dev server has no reverse proxy in front of it to trust that header from real traffic yet) are tracked completely independently.
+
+**Golden master**: re-ran after all of the above — `quick` profile, byte-identical, `engine gaps: 0`. None of this session's fixes touch `_apply_levels`/`compute_outputs` (the golden master's own code path), by design — they're all in the Flask route layer and the cache layer, so this is a sanity check rather than the primary verification; the primary verification for the baseline fix was the live two-visitor simulation above, which the golden master's harness (it calls `_apply_levels` directly, bypassing Flask entirely) cannot exercise.
+
+---
+
+## PROPOSED (2026-09-17, cont'd) — Dockerize for portable deployment. **Planned and researched, NOT implemented.** No file has been created; this section is the plan itself, recorded at the user's request.
+
+User asked whether this could be dockerized to make deployment simple. This section is the resulting plan in full. **Nothing here has been built yet** — if a future session picks this up, everything below is the design, not a description of existing code.
+
+### Context / why
+
+The dashboard currently only runs as `python -u app.py` on a Windows dev box, bound to `127.0.0.1:5051`. It cannot be deployed anywhere as-is, for three concrete reasons found by direct investigation:
+- **No dependency manifest of any kind** — confirmed absent: no `requirements.txt`, `pyproject.toml`, `Pipfile`, `Procfile`, `runtime.txt`, `.dockerignore`, `Dockerfile`, `docker-compose.yml`, or `.github/` anywhere in the repo.
+- **The server binds to loopback on a hardcoded port** — `ui/app.py`'s `app.run(debug=False, port=5051)` passes no `host=`, so Flask defaults to `127.0.0.1`. Inside a container that is unreachable from outside. Nothing reads a `PORT` env var.
+- **The app is useless without the workbook at an exact relative path** (`ui/app.py`'s `WORKBOOK_PATH`, hardcoded, no env var).
+
+Actual runtime dependencies turned out to be tiny — **just `Flask` (3.1.3) and `openpyxl` (3.1.5)**, both pure Python. `fonttools` appears in imports but only in `tools/build_fonts.py`, an offline build script whose output (`ui/static/fonts/roboto-var.woff2`) is already committed, so it is NOT a runtime dependency. (A grep hit for a module named `baseline` was a false positive — it matched the phrase "from baseline beyond EPS" inside a comment in `ui/outputs.py`.)
+
+Docker fits this app unusually well: the workbook dependency becomes a baked-in guarantee rather than an upload checklist item; the expensive one-time work (a ~40 s cold workbook parse plus the pathway precompute) moves to **build time** so every container starts fast and warm; and with only two pure-Python deps the image is small and boring to build.
+
+**User decisions, already made:** deployment target is **"not sure yet — make it portable"** (must run locally, on a PaaS, or on a VPS), and **bake both** the parse cache and the precomputed pathway cache into the image.
+
+**Design constraint adopted deliberately: this plan adds only NEW files and modifies no existing application code.** Given this project's documented history of regressions from incidental edits (and the 2026-09-06 disaster-recovery episode), making the deployment work structurally incapable of touching the engine or dashboard is worth more than any elegance gained by editing `app.py`.
+
+### Key design decisions, and the evidence behind each
+
+**1. One process with multiple threads — NOT the conventional multi-worker default.**
+Verified which state is per-process in `ui/app.py`: `_levels_by_key`, `_rate_buckets`, `_mem_cache`, `_inflight`, `CACHE_STATS`, `MODEL_LOCK`, `eng`, `WORKBOOK_FP`/`OUTPUT_FP` — all module-level. With N worker processes the consequences are concrete, not theoretical:
+- N independent copies of the loaded model (~312 MB each per this file's own earlier profiling).
+- The rate limit silently becomes `RATE_LIMIT_MAX × N`, since `_rate_buckets` is per-process.
+- **Worst: a `baseline_key` created on worker A but routed to worker B resolves to `(None, None)` in `_baseline_state()`** — the documented "no baseline yet" fallback — so the Insights "what changed" panel silently degrades depending on which worker answers. This is the same class of cross-worker inconsistency the client-echoed-baseline fix (earlier this session) was designed around; it fixes *correctness of the numbers* across workers, but the per-lever changed-list still needs the key to resolve on the answering process.
+
+Since `MODEL_LOCK` serializes real computation within a process anyway, extra *processes* mainly help serve *cached* responses — which are already milliseconds and involve no lock. So the memory and Insights costs buy very little. Conclusion: **1 process, ~8 threads.**
+
+**2. Generate the `.compiled.pkl` during the build — do NOT `COPY` it into the image.**
+`xlcompiler/compiler/workbook_model.py` decides whether to trust the parse cache with `cache_mtime >= xlsx_mtime`. Docker layer timestamps can easily invert that ordering, which would **silently trigger a ~40 s full reparse on every container boot**, with no error — just an inexplicably slow start. Generating the pkl inside the image (a `RUN` step after the xlsx is copied) guarantees it is newer than the workbook. Bonus: keeps the **41.4 MB** pkl out of the build context entirely (measured: `IESS2047_Version_3.0.xlsx.compiled.pkl` = 41,350,915 B vs. the xlsx's 9,302,895 B).
+
+**3. Make the Docker build itself run the golden-master test — the highest-value step in this plan.**
+This project's entire credibility rests on numerical fidelity (78/78 flow matches, byte-identical golden payloads). Moving from Windows/Python 3.14 to Linux/Python 3.13 is exactly the kind of environment change that should be *proven* rather than assumed. Running `tools/golden_master.py verify --profile quick` (11 vectors, 397 KB of fixtures) as a build step means **the image cannot build unless it reproduces the Windows numbers byte-for-byte.** Costs ~10 s of build time and converts "floating point should be identical across platforms" from an assumption into a gate.
+
+**4. The cache janitor must be started explicitly by the entrypoint.**
+`start_cache_janitor()` is called only under `if __name__ == "__main__":` in `ui/app.py` — deliberately, so that `tools/prune_cache.py` and `tools/precompute_pathways.py` importing `app` don't delete cache files as a side effect (a real bug caught earlier this same session). But a production WSGI server *imports* the app rather than executing it, so **the janitor would silently never run and the disk cache would grow forever** — precisely the pileup problem the janitor exists to prevent. The new `wsgi.py` calls it explicitly.
+
+**5. Named volume, never a bind mount, for the cache directory.**
+A bind mount over `/app/cache/pathways` **hides the baked-in precomputed pathways**, silently throwing away the warm-start benefit. A *named* volume is seeded from the image's contents on first use, preserving them. This distinction must be documented wherever deployment instructions live.
+
+### Files to create (all new; nothing existing is edited)
+
+**`requirements.txt`** (repo root) — `Flask==3.1.3`, `openpyxl==3.1.5`, `waitress==<current>`. Pinned to the versions already verified locally. `fonttools` deliberately excluded (build-only, see Context).
+
+**`ui/wsgi.py`** — the production entrypoint, placed next to `app.py` so the existing `sys.path` assumptions (`app.py` inserting `../xlcompiler`, and `levers`/`outputs`/`pages` importing as top-level modules from `ui/`) keep working unchanged. Contents: `import app as APP`; call `APP.start_cache_janitor()` (decision 4); `waitress.serve(APP.app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), threads=int(os.environ.get("IESS_THREADS", 8)))`.
+
+Waitress rather than gunicorn, deliberately: pure Python, and it runs on Windows too, so the *same* serve command works on the dev box and in the container — worth something on a Windows-primary project. It also means `app.run()` is never used in the container, so **the hardcoded `127.0.0.1:5051` is bypassed rather than edited**, preserving the no-existing-code-changes constraint.
+
+**`Dockerfile`** — `python:3.13-slim`. Layer order chosen so expensive steps stay cached across ordinary code edits:
+1. `COPY requirements.txt` → `pip install` (cached unless deps change)
+2. `COPY workbook/*.xlsx` → **`RUN` the parse to generate the pkl** (cached unless the workbook changes — and it rarely does)
+3. `COPY xlcompiler/ ui/ tools/` → `RUN tools/precompute_pathways.py --workers 2` (2 workers, not 4, to bound build-time RAM: each loads its own ~312 MB engine)
+4. `COPY tests/golden/quick` → `RUN tools/golden_master.py verify --profile quick --allow-new` (decision 3)
+5. non-root `appuser`, `chown` the cache dir, `WORKDIR /app/ui`, `HEALTHCHECK` against `/cache_stats` (trivially cheap JSON — `/` renders the whole HTML template via `str.replace` and is much heavier), `CMD ["python", "wsgi.py"]`
+
+Build args so iteration isn't painful: `PRECOMPUTE=1`, `VERIFY=1`, `PRECOMPUTE_WORKERS=2`; `--build-arg PRECOMPUTE=0 --build-arg VERIFY=0` gives a fast dev build.
+
+Note the directory layout inside the image must mirror the repo (`/app/ui`, `/app/workbook`, `/app/cache`, `/app/xlcompiler`) because `WORKBOOK_PATH` and `CACHE_DIR` are both derived from `os.path.dirname(__file__)` — no code change needed, just faithful COPY structure.
+
+**`.dockerignore`** — build context is 85 MB; this cuts it to ~11 MB. Exclude: `.git/` (21 MB), `tests/golden/full` (8.5 MB — keep `quick`), `cache/` (regenerated at build), `workbook/*.compiled.pkl` (41 MB, regenerated per decision 2), `workbook/~$*.xlsx` (a 165 B Excel lock artifact that must never ship), `img/` (576 KB repo-root copy, not served — Flask's static root is `ui/static`), `**/__pycache__` (~550 KB across 4 dirs), `*.md` (this context file alone is 484 KB), `ui/debug_supply_chart.png` (148 KB), `tools/devtools/`, and the stray `jolinsonrichie-*.json` (320 KB).
+
+**`docker-compose.yml`** — for the local/VPS case: builds, maps `8080:8080`, sets `IESS_THREADS`, mounts a **named** volume `iess-cache:/app/cache/pathways` (decision 5), `restart: unless-stopped`.
+
+**`DEPLOY.md`** — short: build/run commands, the env var table (the six `IESS_*` vars `ui/app.py` already supports — `IESS_MAX_CONTENT_LENGTH`, `IESS_RATE_LIMIT_MAX`, `IESS_RATE_LIMIT_WINDOW`, `IESS_CACHE_DIR`, `IESS_CACHE_MAX_AGE_DAYS`, `IESS_CACHE_PRUNE_INTERVAL_SECONDS` — plus the new `PORT`/`IESS_THREADS`), the ~1 GB RAM guidance, and the named-volume warning.
+
+### Verification plan (each step has a concrete pass condition)
+
+1. **Build gate**: `docker build -t iess .` must succeed — which *includes* the golden-master quick profile passing inside the container. Watch for `PASS` and `engine gaps: 0`. This alone proves Linux + Python 3.13 reproduces the Windows numbers byte-for-byte.
+2. **Boot**: `docker run -p 8080:8080 iess`. Expect a `cache prune: kept …` line in the logs — proof the janitor actually started (the thing that would silently not run under a plain WSGI import).
+3. **Serves**: `curl -s -o /dev/null -w "%{http_code}" localhost:8080/` → `200`; `curl localhost:8080/cache_stats` → JSON.
+4. **Numbers correct end-to-end over HTTP**, using the known-good values established earlier this session: `POST /set_scenario {"level":1}` → `total_demand` **2201.98**; `{"level":2}` → **1564.93**; `{"level":4}` → **1070.58**.
+5. **The bake actually worked (warm, not cold)**: those preset calls return in milliseconds, not ~1.8 s; `/cache_stats` shows `disk_hit`/`mem_hit` incrementing rather than `computed`.
+6. **Rate limiting survives containerization**: 125 rapid `POST /set_scenario` → 120×`200`, 5×`429`.
+7. **Memory**: `docker stats` → expect ~350-450 MB steady. Confirms the single-process choice and tells us which hosting tiers are viable.
+8. **Real browser**: open `localhost:8080`, click through all tabs, drag a lever, confirm the Sankey renders and Insights updates.
+
+### Portability checks already done (all clean — no blockers found)
+
+Investigated ahead of writing this plan, since the whole project was developed on Windows:
+- **Zero hardcoded Windows paths in server-runtime code** (`ui/`, `xlcompiler/`) — a regex for drive-letter paths returned no hits; everything uses `os.path.join(os.path.dirname(__file__), ...)`. The server never imports `tools/` (the dependency runs the other way).
+- **No case-sensitivity hazards** — on-disk static filenames (including the mixed-case `ACPET_LOGO_White.png` and `ICSS-logo-small.png`) match their references in `ui/pages/base.py` exactly, as does the workbook filename. This is the classic Windows→Linux breakage and it is clean here.
+- **No platform checks anywhere** — no `os.name`, `sys.platform`, or `platform.` usage in `ui/` or `xlcompiler/`. The one Windows-specific accommodation, `mimetypes.add_type("font/woff2", ".woff2")`, is harmless and still useful on Linux.
+- **Encodings are explicit** in all server-runtime text I/O. The two mojibaked Industry lever names originate inside the workbook/pickle itself (`ui/levers.py` does no decoding of its own — it reads `cell.value` straight off the parsed model), so they render identically on Linux. Not a portability delta.
+- **Write-then-rename cache semantics** (`os.replace`, same directory) are strictly safer on Linux than Windows. No file locking, no `msvcrt`.
+
+### Known limitations to carry forward (deliberately not addressed by this plan)
+
+- **Horizontal scaling across replicas degrades Insights**: `_levels_by_key` is per-process, so a `baseline_key` created on one replica won't resolve on another and falls back to the documented empty "no baseline yet" list. The fix, if ever needed, is to persist that map into the shared disk cache alongside the pathway data — deliberately out of scope here.
+- **`cache_put`'s `os.makedirs` sits OUTSIDE its `try/except`** in `ui/app.py`, so a read-only filesystem with a *missing* cache dir would 500 on a cache write (the read path, the prune, and the gzip write itself are all guarded; this one call is not). Baking the cache directory into the image means this cannot trigger in this setup — noted rather than patched, to keep this change code-free. Worth fixing if the app is ever run with `--read-only` and no baked cache dir.
+- **~1 GB RAM recommended.** A 512 MB free tier (e.g. Render's) will be tight against a ~312 MB model plus interpreter overhead.
+- **Python 3.13 chosen for maturity** over the 3.14 dev box; if anything objects at build time it is a one-word change to `python:3.14-slim`, and verification step 1 would catch any numeric difference either way.
+- At import time `ui/app.py` runs `_output_schema_fingerprint()`, which performs a **full `compute_outputs()` evaluation under `MODEL_LOCK`** — so every container boot pays one real model evaluation (~1-3 s) on top of the pickle load. Unavoidable without code changes; acceptable, but explains part of the cold-start time.
+
+---
+
+## Session Notes (2026-09-18) — UI pass: KPI row rebuilt twice, Energy Flows made a standalone Sankey-only tab, the footer pinned (which broke `--ui-scale` and had to be fixed properly), the Sankey sized by measurement instead of arithmetic, the masthead wordmark, and the pathway chip made to carry its effort level. **All UI-layer. No engine, no `ui/outputs.py` compute change — no model number moved.**
+
+Entirely CSS/JS/template work driven by the user looking at the running app. Files touched: `ui/static/css/dashboard.css`, `ui/static/js/dashboard.js`, `ui/pages/all_energy.py`, `ui/pages/tabs.py`, `ui/pages/base.py`, `ui/app.py` (one line).
+
+### 1. The KPI row: three coloured cards → one white box → a grey tray of white blocks
+
+The row was three separate cards each carrying its own accent from the Sankey's five-colour ramp (amber demand / green clean share / blue imports, each with a faint background wash and a 3px coloured top edge). The user's objection: three readings of one scenario rendered in three different colours read as three unrelated widgets.
+
+Two iterations, because the first overcorrected:
+
+1. **One white box, hairline-divided sections.** `.stat-row` took the border/radius/background, `.stat-card` dropped its own box and took a `border-left` divider. All per-card accent rules deleted, and `.stat-note-accent` (the green "renewables, hydro, nuclear" caption) went to `--muted`. Result read as flat.
+2. **A grey tray holding three raised white blocks** — where it landed. `.stat-row` is `--surface-2` (#F1F3F5) with 12px radius, 8px padding and an 8px gap; `.stat-card` is white with a 9px radius and a `0 1px 2px` shadow. Separation is now the gap plus the tone step — no dividers, no per-block colour.
+
+Hover interaction added at the user's request ("slightly modern with little interaction"): 1px lift, deeper shadow, border to `rgba(41,105,154,.28)`, and `.stat-value` to `--accent`. 160ms; the transform is dropped under `prefers-reduced-motion`.
+
+The `.stat-demand` / `.stat-clean` / `.stat-imports` classes are still in `all_energy.py`'s markup as hooks but **style nothing** — left deliberately so a future accent has somewhere to land.
+
+The `@media (max-width: 1080px)` block simplified: it used to flip divider orientation when the lead card spanned both columns, which the tray made unnecessary.
+
+### 2. Energy Flows: its own tab group, and the Custom Pathways band hidden on it
+
+Two separate changes, both asked for as "make it a completely different tab section, and only the Sankey inside".
+
+**Grouping** (`ui/pages/tabs.py`): `Energy Flows` moved out of the `Energy` group into a group of its own, `Flows`. `TAB_GROUPS` is the single source — `TABS` and `CLICKABLE_TABS` derive from it, so nothing else needed touching.
+
+**Contents**: the view itself (`ui/pages/energy_flows.py`) was *already* only the dark control strip plus the Sankey — the GHG gauge, the lever columns and the Insights panel the user was seeing are `<section class="control-deck-h">` in `ui/pages/base.py`, i.e. page shell rendered under *every* tab. So the fix is in the tab handler, not the page:
+
+```js
+document.body.classList.toggle("flows-only", isEnergyFlows);   // dashboard.js
+```
+```css
+body.flows-only .control-deck-h { display: none; }             // dashboard.css
+```
+
+`display: none`, not removal: **every lever keeps its state**, so switching to Flows and back is free and triggers no recalculation. The class is set *before* the `renderSankey()` call in the same handler, so the diagram measures the page it will actually be drawn on.
+
+**A stale-output false alarm.** The user reported the tab grouping "not being reflected". It was: `tabs.py` is a Python module substituted into the HTML at request time, so a running server needs a **restart**, not a browser refresh. Worth stating to anyone reporting a template change not appearing — `ui/app.py` sets `no-store` on the HTML but the modules are already imported.
+
+### 3. `margin-top: auto` on the footer — and the `--ui-scale` feedback loop it caused
+
+**Read this before touching the footer, `.page`'s min-height, or anything with `flex-grow` in the page column.** This is the same class of circular dependency already documented for the 2026-09-08 session, hit again from a new direction.
+
+The user wanted the footer always at the bottom of the window. `.page` was already `min-height: calc(100vh / var(--ui-scale))` as a flex column, but nothing in it grew, so the column ended where the content did and the footer floated mid-screen — most visibly on Energy Flows, which now hides the whole deck. The obvious fix, `margin-top: auto` on `.site-footer`, **collapsed the entire UI to `UI_SCALE_MIN` (0.7)**.
+
+Why: `fitUiScale()` iterates `ratio = clientHeight * 0.995 / footerBottom` and multiplies the scale by it. With the auto margin, the footer's bottom edge is *always* about `clientHeight / scale` no matter what the content does — so every pass computed `ratio` of about 0.995, found nothing to converge on, and walked the scale down 0.5% at a time, six passes per call.
+
+**First fix** (measure around the filler): `fitUiScale` measured the last real content block's bottom plus the footer's own height, instead of the footer's position.
+
+**Final fix** (measure with the filler off), once the deck also had to grow — see §4. `fitUiScale` now wraps its loop in:
+
+```js
+document.body.classList.add("measuring-fit");
+try { /* …six passes, reading footer.getBoundingClientRect().bottom… */ }
+finally { document.body.classList.remove("measuring-fit"); }
+```
+```css
+body.measuring-fit .control-deck-h { flex: 0 0 auto; }
+body.measuring-fit .lever-grid     { flex: 0 0 auto; }
+body.measuring-fit .site-footer    { margin-top: 0; }
+```
+
+The class is never painted — added and removed inside one synchronous function. The `finally` is load-bearing: if a throw left it on, the deck would silently stop filling and the gap would return with no obvious cause.
+
+**The general rule this establishes:** any rule that lets an element absorb leftover vertical space makes the laid-out page exactly window-height, which is precisely the measurement `fitUiScale` depends on. Either suppress those rules during measurement (what `measuring-fit` does) or measure something that cannot stretch. Never both feed and read the same quantity.
+
+### 4. Custom Pathways stretched to meet the footer
+
+Follow-on from §3: with the footer pinned, a band of page ground showed between the deck and it.
+
+- `.control-deck-h`: `flex: 0 0 auto` → **`1 0 auto`**. Grows past its content so its own background reaches the footer; never shrinks, so a deck taller than the window still pushes the page rather than compressing its rows.
+- `.lever-grid`: likewise `1 0 auto`, so the extra height lands on the levers rather than as dead padding. It already had `align-items: stretch`, so the columns take the new height.
+- `.lg-col`: added `justify-content: space-between`. The existing `gap: 9px` stays the **minimum** (space-between only ever adds), so nothing gets tighter and a full column lays out exactly as before.
+
+All three are suppressed by `body.measuring-fit`.
+
+### 5. The Sankey: sized by measurement, no scrollbar, opens on 2022
+
+**Height.** It was `height: clamp(400px, calc((100vh / var(--ui-scale)) - 300px), 820px)` — a guess at the page chrome, and a guess is wrong the moment any band above it changes height. It also had no way to know the deck is hidden on this tab. Raising the constant (tried `-190px` / `1100px`) only moved the error, and the tab scrolled.
+
+Replaced with a measurement, `sizeSankeyToViewport(svgEl)`, called at the top of `renderSankey()`:
+
+```js
+const avail = document.documentElement.clientHeight - svgTop - footerH - PAD;
+svgEl.style.height = Math.max(320, avail) / scale + "px";
+```
+
+**The units are the trap.** `zoom` is on `<body>`, so `getBoundingClientRect()` returns **rendered** pixels while a CSS height set on the SVG is a **logical** length the zoom then multiplies — hence the `/ scale` on the way out. `documentElement.clientHeight` is unzoomed, which is why the footer is measured rather than assumed. `PAD` is `.sankey-card`'s own 10px bottom padding, rendered (`10 * scale`).
+
+`renderSankey()` already runs on tab switch, year change and resize, so it re-fits at all three. The CSS clamp survives, narrowed to `clamp(320px, 100vh/scale - 220px, 900px)`, **as a pre-first-render fallback only** — the inline height overrides it.
+
+Note `fitUiScale()` still returns early on this tab (long-standing, correct): the Sankey's height is viewport-derived, so measuring it there would chase a target that moves with the scale.
+
+**Default year.** The tab opened on 2047 — the end of the projection, with no baseline to read it against. Now 2022. **Two places must agree** or the highlighted button lies about what is drawn:
+- `ui/app.py`: `__DEFAULT_SANKEY_YEAR__` takes `CHART_YEAR_LABELS[0]` (was `[-1]`)
+- `ui/pages/tabs.py`: `render_year_buttons_html()` marks `CHART_YEAR_LABELS[0]` active (was `[-1]`)
+
+**Node tooltip trimmed.** It printed a third line, `"N in · M out — full route traced"`. Removed — the link counts are visible in the diagram the pointer is already on, and "full route traced" described the highlight the hover is itself performing. Node tooltips are now name + throughput. Link tooltips untouched.
+
+### 6. Masthead: the ICSS wordmark replaces the text title
+
+`<span class="site-banner-title">India Energy Security Scenarios</span>` became an `<img>` of `/static/img/ICSS-logo-small.png`, which carries both the Devanagari and English names plus the 2047.
+
+**The PNG is genuinely transparent** — RGBA 925x270, alpha extrema 0 to 255, corners at alpha 0. Verified with Pillow, after the user challenged an earlier comment of mine that had copied ACPET's reasoning. **It is plated anyway, for a different reason: contrast.** Its dominant type colour is `#4E565A` against the band's `#3F4247` — roughly 1.3:1, so unplated the words are present and unreadable. (Contrast with ACPET's, which is plated because it has *no alpha channel at all* despite its `_White` name.)
+
+Final sizes, after a round of "make them more visible":
+- `.site-banner-title-logo`: **64px** high, `max-width: min(52vw, 660px)`, `object-fit: contain`, tighter `2px 8px` plate padding (the side logos' `3px 7px` drew a wide white slab at this size).
+- `.site-banner-logo` (NITI, ACPET): **36px → 48px**. At 36 the NITI emblem's fine navy linework and ACPET's lettering were shapes rather than identifiable marks.
+- `.site-banner` padding: **10px → 6px**, to give back some of the height the larger marks took. Band nets out from about 88px to about 80px.
+
+The English name carries over as the img's `alt`, so nothing is lost with images off.
+
+### 7. The pathway control: the wrapping pill removed, and the dropdown itself made to carry the effort level
+
+Two changes, the second correcting the first.
+
+**The level colour.** An 8px dot was the only thing that changed when the pathway changed — the correct signal at a size nobody notices, in a row full of other small round things. The control now takes the level's colour.
+
+**Wash + edge, not a solid fill.** The ramp spans `--lvl-1` #9AA2AC to `--lvl-4` #25702C, so a solid fill would need white text on the dark levels and dark text on the light ones — the control would invert halfway up its own scale, and level 1 in white is 2.3:1. Instead: the ramp colour at roughly 8% on white as the background, the ramp colour itself on the edge, text left ink. Every wash holds `--ink` above 15:1.
+
+**Then the pill came off.** The first pass put that colour on `.pathway-chip`, the white 999px pill wrapping dot + label + `<select>`. The user's objection, and it is right: that gave the control **two nested outlines — an oval one around a rectangular dropdown** — and the oval was the louder of the two while being the part that is not clickable.
+
+So `.pathway-chip` is now a bare flex row (`background: transparent; border: 0; padding: 0`) and **the `<select>` is the only bordered thing**, which is correct because it is the only thing you can operate. The select was previously borderless *because* the pill was its edge; it now carries `border: 1px`, `border-radius: 7px` (not the pill's 999px — a rectangular control with a chevron, where a fully rounded end reads as a tag rather than as something you can open) and `padding-left: 10px`.
+
+**Note the split that this leaves:** the `--chip-*` variables are still **defined** on `.pathway-chip[data-level=…]`, because the attribute selector needs the element carrying `data-level`, but they are **consumed** by `.pathway-chip-select`. Keep both halves in mind when changing either.
+
+```css
+.pathway-chip-select { background-color: var(--chip-wash, #fff);
+                       border-color: var(--chip-edge, var(--line));
+                       box-shadow: inset 0 0 0 1px var(--chip-edge, transparent); }
+.pathway-chip[data-level="1"] { --chip-edge: var(--lvl-1); --chip-wash: #F1F3F5; }
+/* …2/3/4… */
+.pathway-chip[data-level="custom"] { --chip-edge: #C8D0DC; --chip-wash: #F7F9FB; }
+```
+
+Three details worth keeping:
+- **The edge is a 1px border plus a 1px inset ring, not a 2px border.** The ring costs no layout, so switching pathway cannot shift the tab row beside it by a pixel.
+- **`:hover` is `border-color: var(--chip-edge, #9AA2AC)`** — the old flat grey hover would otherwise override the level colour. It moved from `.pathway-chip` to `.pathway-chip-select` with the border.
+- **The dot stays**, now driven off the same `--chip-edge`, and sits outside the box on the page ground. Redundant with the wash by design: colour is the only channel carrying this, and the dot is what keeps it legible to anyone who cannot separate the washes.
+
+The chevron is still a `background-image` on the select rather than an added element, so it remains one native `<select>` with nothing overlaying its hit area — the later rule sets only `background-color`, so the chevron survives it.
+
+`custom` is not a point on the ramp (no preset loaded) so it reads as unset — the neutral the dot already used, on the palest wash. `dashboard.js:1150` is the only writer of `data-level` and was not changed.
+
+### Verification status
+
+`tabs.py` render output and `dashboard.js` syntax were checked (`node --check`). **The app was not run in this session** — every change is CSS/template/JS visual work confirmed by the user against their own running instance, iteration by iteration. Anyone picking this up should restart the server (for the Python templates) *and* hard-refresh (static files are not `no-store`).

@@ -196,6 +196,7 @@ def cmd_verify(args):
         # all-N states cannot.
         eq = None
         chart = got.get("emissions_by_sector_chart")
+        
         if chart and "emissions_2047_total" in got:
             a, b = round(chart["total"][-1], 2), got["emissions_2047_total"]
             if abs(a - b) > 0.005:

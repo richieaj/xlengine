@@ -8,6 +8,7 @@ import os
 import re
 import sys
 import threading
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "xlcompiler"))
 
@@ -15,6 +16,7 @@ from flask import Flask, jsonify, request
 
 from compiler.engine import ModelEngine
 
+from cache_gc import prune as prune_cache
 from levers import load_levers
 from outputs import (CHART_YEAR_LABELS, DEFERRABLE_KEYS, SUMMARY_KPI_KEYS,
                      compute_outputs, diff_outputs, kpi_deltas)
@@ -22,10 +24,12 @@ from pages.base import render_base
 from pages.sidebar import render_sidebar_html
 from pages.tabs import render_tabs_html, render_year_buttons_html
 from pages import (all_energy, electricity, energy_security, emissions, indicators,
-                    costs, energy_flows, land_water, critical_minerals)
+                    costs, energy_flows, land_water, critical_minerals,
+                    mission_life, health)
 
 PAGE_MODULES = [all_energy, electricity, energy_security, emissions, indicators,
-                costs, energy_flows, land_water, critical_minerals]
+                costs, energy_flows, land_water, critical_minerals,
+                mission_life, health]
 
 WORKBOOK_PATH = os.path.join(os.path.dirname(__file__), "..", "workbook", "IESS2047_Version_3.0.xlsx")
 
@@ -39,6 +43,14 @@ WORKBOOK_PATH = os.path.join(os.path.dirname(__file__), "..", "workbook", "IESS2
 mimetypes.add_type("font/woff2", ".woff2")
 
 app = Flask(__name__)
+
+# A lever payload is ~51 small ints (well under 2 KB even with the baseline_key
+# echoed back). No legitimate request needs anywhere near this; it exists only to
+# reject an absurdly large body outright before Flask/Werkzeug buffer all of it into
+# memory, which costs nothing for real traffic and closes off one cheap memory-
+# pressure angle. Overridable via IESS_MAX_CONTENT_LENGTH if some future page ever
+# needs a bigger body for a different route.
+app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("IESS_MAX_CONTENT_LENGTH", 64 * 1024))
 
 print("Loading model (one-time)...", flush=True)
 eng = ModelEngine.load(WORKBOOK_PATH, verbose=False)
@@ -61,15 +73,6 @@ LEVER_NAMES = {
     for sc in grp["subcats"]
     for item in sc["levers"]
 }
-
-
-baseline_snapshot = None
-# The lever vector belonging to baseline_snapshot — every lever at the level
-# the last-selected pathway used. Diffed against on every /recalc to drive the
-# "what changed since you picked a pathway" summary strip. Like
-# baseline_snapshot, this is a diff target (mutable global), not part of the
-# cached response.
-baseline_levels = None
 
 
 def lever_changes(levels, baseline):
@@ -102,6 +105,72 @@ def lever_changes(levels, baseline):
 MODEL_LOCK = threading.Lock()
 
 
+# ── Basic per-visitor rate limiting ─────────────────────────────────────────────
+# This caps how FAST any one visitor can hit the model, not how MANY visitors the
+# site can serve at once — those are two different questions. Total concurrent
+# traffic is what the response cache (above) already exists to handle: a request for
+# a scenario/lever combination someone has already reached comes back in a few
+# milliseconds with no lock involved at all, so lakhs of visitors landing on the same
+# handful of popular pathways cost almost nothing regardless of this limiter.
+#
+# What this DOES guard against: a single client cycling through many distinct,
+# never-before-seen lever vectors, each forcing a real ~1-2s computation (the
+# evaluator is single-threaded by design — see MODEL_LOCK above), all serialised
+# behind that one lock. That queues behind every OTHER visitor's request too, since
+# there is one lock for the whole process — the blast radius of one abusive client
+# is the whole site, not just their own session. The limit is deliberately generous
+# (120 requests / 60s per IP by default) — a real person dragging a lever is already
+# throttled far below this by the client's own 250ms debounce and its "one request in
+# flight at a time" queue (dashboard.js), so this only ever engages against something
+# firing far faster than a human can, e.g. a script.
+RATE_LIMIT_MAX = int(os.environ.get("IESS_RATE_LIMIT_MAX", 120))
+RATE_LIMIT_WINDOW = float(os.environ.get("IESS_RATE_LIMIT_WINDOW", 60))
+_RATE_BUCKETS_MAX = 20000  # distinct IPs tracked at once; oldest evicted first, not by age
+_rate_lock = threading.Lock()
+_rate_buckets = collections.OrderedDict()  # ip -> [timestamp, ...], oldest first
+
+
+def _client_ip():
+    # X-Forwarded-For is only trustworthy behind a reverse proxy that actually sets
+    # it (a bare client can send any value it likes); this dev server has no such
+    # proxy in front of it today, so request.remote_addr is what's real here. Reading
+    # the header too means this keeps working unchanged the moment one IS added.
+    fwd = request.headers.get("X-Forwarded-For")
+    return fwd.split(",")[0].strip() if fwd else (request.remote_addr or "unknown")
+
+
+def _rate_limited():
+    """True if this caller already made RATE_LIMIT_MAX requests to a limited route
+    within the last RATE_LIMIT_WINDOW seconds. Fails OPEN on any internal error — a
+    bug in the limiter must never be the reason a real request gets refused."""
+    try:
+        now = time.time()
+        cutoff = now - RATE_LIMIT_WINDOW
+        with _rate_lock:
+            ip = _client_ip()
+            bucket = _rate_buckets.setdefault(ip, [])
+            _rate_buckets.move_to_end(ip)
+            while len(_rate_buckets) > _RATE_BUCKETS_MAX:
+                _rate_buckets.popitem(last=False)
+            i = 0
+            while i < len(bucket) and bucket[i] < cutoff:
+                i += 1
+            if i:
+                del bucket[:i]
+            if len(bucket) >= RATE_LIMIT_MAX:
+                return True
+            bucket.append(now)
+            return False
+    except Exception:
+        return False
+
+
+def _rate_limit_response():
+    resp = jsonify({"error": "too many requests — please slow down"})
+    resp.headers["Retry-After"] = str(int(RATE_LIMIT_WINDOW))
+    return resp, 429
+
+
 @app.after_request
 def no_cache(resp):
     # /pathway/<key>.json deliberately sets its own long-lived Cache-Control
@@ -121,7 +190,13 @@ def index():
     html = html.replace("__TABS_HTML__", render_tabs_html())
     html = html.replace("__PAGES_HTML__", pages_html)
     html = html.replace("__YEAR_BUTTONS_HTML__", render_year_buttons_html())
-    html = html.replace("__DEFAULT_SANKEY_YEAR__", CHART_YEAR_LABELS[-1])
+    # First year, not last. The Sankey opened on 2047 — the end of the
+    # projection — so the first thing anyone saw on the tab was a modelled
+    # future with no baseline to read it against. 2022 is the actual system,
+    # and stepping forward from it is what the year buttons are for.
+    # render_year_buttons_html() marks the same year active; keep the two
+    # together if either moves.
+    html = html.replace("__DEFAULT_SANKEY_YEAR__", CHART_YEAR_LABELS[0])
     html = html.replace("__IDS_JSON__", json.dumps(list(ALL_LEVER_ROWS.keys())))
     # Fail loudly on an unsubstituted token instead of shipping it to the
     # screen. This whole page is assembled by str.replace (see base.py), and
@@ -139,7 +214,13 @@ def index():
 
 @app.route("/set_scenario", methods=["POST"])
 def set_scenario():
-    level = int(request.get_json()["level"])
+    if _rate_limited():
+        return _rate_limit_response()
+    body = request.get_json(silent=True) or {}
+    try:
+        level = int(body.get("level"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "level must be an integer"}), 400
     return _set_scenario(level)
 
 
@@ -161,11 +242,21 @@ def canonical_levels(levels):
     31/40/59/60/61/62 max at 3, row 49 at 5. Clamping in the key too means two requests
     differing only above a lever's max share one entry, which is correct: they compute
     the same answer.
+
+    Tolerant of a malformed `levels` (not a dict, or containing junk values): treated
+    the same as "this lever was omitted" (default 1) rather than raising, so a bad
+    request body degrades to a defined, cacheable, boring result instead of a 500.
     """
-    return {
-        lever_id: max(1, min(int(levels.get(lever_id, 1)), ALL_LEVER_MAX[lever_id]))
-        for lever_id in ALL_LEVER_ROWS
-    }
+    if not isinstance(levels, dict):
+        levels = {}
+    out = {}
+    for lever_id in ALL_LEVER_ROWS:
+        try:
+            value = int(levels.get(lever_id, 1))
+        except (TypeError, ValueError):
+            value = 1
+        out[lever_id] = max(1, min(value, ALL_LEVER_MAX[lever_id]))
+    return out
 
 
 def _apply_levels(levels):
@@ -239,6 +330,69 @@ def cache_get(key):
     return data
 
 
+# ── Per-pathway lever vectors, for the "what changed" diff ─────────────────────
+# diff_outputs()/lever_changes() need a BASELINE to compare the current request
+# against — "what did you start from before you touched a lever". That baseline used
+# to be one pair of mutable globals (baseline_snapshot/baseline_levels) written by
+# /set_scenario and read by every later /recalc, which is wrong the moment two
+# different visitors are using the site at once: visitor A picks a pathway, visitor B
+# picks a different one a moment later, and now A's next /recalc is diffed against B's
+# pathway, not their own. The fix is not a bigger lock (the numbers were already
+# correct — only this diff was cross-contaminated) — it's to stop keeping a baseline
+# on the server AT ALL. Each browser tab already gets a `pathway_key` back from
+# /set_scenario/`/recalc`; it holds onto that as ITS OWN baseline (dashboard.js's
+# `myBaselineKey`) and sends it back on every later /recalc. The server only needs to
+# resolve a key back into (levels, data) on demand — and the `data` side of that is
+# already exactly what cache_get(key) does. The `levels` side (the raw per-lever
+# vector, needed for lever_changes()'s per-lever "L4 -> L1" list) isn't part of the
+# cached response payload, so it's remembered here, keyed the same way.
+#
+# Deliberately in-memory only, not written to the on-disk cache: it exists purely to
+# serve a request that arrives with a baseline_key this same process has seen before.
+# If the server restarts, a client's remembered key simply stops resolving a levels
+# list — lever_changes() falls back to its already-established "no baseline yet"
+# convention ([]) rather than erroring, and diff_outputs(data, None) does the same for
+# `changed`. Nothing breaks; the one thing lost is the "which lever moved" detail line
+# until the visitor picks a pathway again, which also re-establishes it.
+_LEVELS_CACHE_MAX = 2048
+_levels_by_key = collections.OrderedDict()
+_levels_lock = threading.Lock()
+
+
+def _remember_levels(key, canon):
+    with _levels_lock:
+        _levels_by_key[key] = canon
+        _levels_by_key.move_to_end(key)
+        while len(_levels_by_key) > _LEVELS_CACHE_MAX:
+            _levels_by_key.popitem(last=False)
+
+
+def _recall_levels(key):
+    if not key:
+        return None
+    with _levels_lock:
+        v = _levels_by_key.get(key)
+        if v is not None:
+            _levels_by_key.move_to_end(key)
+        return v
+
+
+def _baseline_state(baseline_key):
+    """(levels, data) for a client-remembered baseline pathway_key.
+
+    (None, None) if the key is missing, unrecognised, or this worker never computed
+    it (e.g. after a restart) — the same "fresh pathway, no drift yet" convention
+    diff_outputs()/lever_changes() already use for a None baseline.
+    """
+    if not baseline_key:
+        return None, None
+    data = cache_get(baseline_key)
+    levels = _recall_levels(baseline_key)
+    if data is None or levels is None:
+        return None, None
+    return levels, data
+
+
 def cache_put(key, data):
     _mem_put(key, data)
     os.makedirs(CACHE_DIR, exist_ok=True)
@@ -295,6 +449,37 @@ def pathway_key(levels):
     return f"{WORKBOOK_FP}{OUTPUT_FP}-" + hashlib.sha256(body.encode()).hexdigest()[:24]
 
 
+def enumerate_frontier():
+    """The 4 example pathways plus every single-lever deviation from each.
+
+    Deduplicated by pathway_key, because different raw vectors can canonicalise to the
+    same state — e.g. requesting level 4 on a lever that maxes at 3.
+
+    The single definition of "the precompute frontier": tools/precompute_pathways.py
+    calls this (via `import app as APP`) to know what to compute, and the cache
+    janitor below calls it to know what to keep regardless of age, so there is no
+    second copy of this enumeration that could drift out of step with either.
+    """
+    lever_ids = sorted(ALL_LEVER_ROWS, key=lambda k: ALL_LEVER_ROWS[k])
+    seen, states = set(), []
+
+    def add(vec):
+        key = pathway_key(vec)
+        if key not in seen:
+            seen.add(key)
+            states.append((key, vec))
+
+    for level in (1, 2, 3, 4):
+        base = {lid: level for lid in lever_ids}
+        add(base)
+        for lid in lever_ids:
+            for alt in range(1, ALL_LEVER_MAX[lid] + 1):
+                vec = dict(base)
+                vec[lid] = alt
+                add(vec)
+    return states
+
+
 def _disk_path(key):
     return os.path.join(CACHE_DIR, key + ".json.gz")
 
@@ -303,8 +488,14 @@ def compute_pathway(levels, defer=DEFERRABLE_KEYS):
     """Model outputs for a lever vector, cached, with one computation per key.
 
     Returns (key, data). `data` deliberately excludes "changed": that mask is a diff
-    against the mutable baseline_snapshot, not a function of the lever vector, so it
-    must be recomputed per request rather than cached alongside the payload.
+    against a per-request baseline (see _baseline_state), not a function of the lever
+    vector, so it must be recomputed per request rather than cached alongside the
+    payload.
+
+    Also remembers this key's own canonical lever vector (_remember_levels) on every
+    call, hit or miss — so any key currently being asked for can be resolved back into
+    a lever vector by _baseline_state() a moment later, e.g. when this same response's
+    own pathway_key comes back as a later request's baseline_key.
 
     Single-flight: concurrent callers wanting the same uncached key elect one leader to
     compute while the rest wait for it. Without this, a scenario that suddenly becomes
@@ -312,6 +503,7 @@ def compute_pathway(levels, defer=DEFERRABLE_KEYS):
     it is busiest.
     """
     key = pathway_key(levels)
+    _remember_levels(key, canonical_levels(levels))
     hit = cache_get(key)
     if hit is not None:
         return key, hit
@@ -362,19 +554,17 @@ def _set_scenario(level):
     4:1}), not level 1. All-levers-at-1 is 2,201.98, and the four pathways now
     form a monotonic ladder: 2201.98 / 1564.93 / 1225.04 / 1070.58.
 
-    Takes no lock itself: compute_pathway() acquires MODEL_LOCK around the model, and
-    assigning baseline_snapshot is a single atomic rebind. Acquiring it here as well
-    self-deadlocked, MODEL_LOCK being a plain non-reentrant Lock.
+    Takes no lock itself: compute_pathway() acquires MODEL_LOCK around the model.
+
+    Returns no server-side baseline assignment — the pathway IS the baseline for
+    whatever comes next, but "next" might be a different browser tab entirely doing
+    its own thing at the same time, so the client is what remembers it: dashboard.js
+    stores this response's own pathway_key as its baseline_key and echoes it back on
+    every later /recalc. See the "Per-pathway lever vectors" comment above cache_get()
+    for why that replaced a pair of mutable globals here.
     """
-    global baseline_snapshot, baseline_levels
     levels = {lever_id: level for lever_id in ALL_LEVER_ROWS}
     key, data = compute_pathway(levels)
-
-    # The chosen pathway IS the baseline that later lever tweaks are diffed against, so
-    # it's the same data rather than a second "what-if" computation — which also makes
-    # picking a pathway about twice as fast, as it no longer computes the model twice.
-    baseline_snapshot = data
-    baseline_levels = canonical_levels(levels)
     out = dict(data)
     out["changed"] = diff_outputs(data, None)
     out["lever_changes"] = []  # a fresh pathway has no drift from itself yet
@@ -394,13 +584,24 @@ def pathway_by_key(key):
 
     A miss is a 404 rather than a computation: the key alone does not carry the lever
     vector, so there is nothing to compute from. The client falls back to POST /recalc.
+
+    Optional `?baseline_key=` query param, same meaning as /recalc's `baseline_key`
+    body field (see _baseline_state) — needed because this is a GET with no body to
+    carry one otherwise. Note this makes the response no longer a pure function of the
+    URL PATH alone if a caller ever varies baseline_key: a CDN/reverse proxy fronting
+    this route should key its cache on the full URL including the query string (the
+    common default), or the "changed" field specifically could go stale behind a
+    path-only cache — the rest of the payload is unaffected either way. Not yet reached
+    by the real client (dashboard.js still always POSTs /recalc), so this is dormant
+    infrastructure for a future CDN tier, not a currently-exercised path.
     """
     data = cache_get(key)
     if data is None:
         CACHE_STATS["get_miss"] += 1
         return jsonify({"error": "not cached"}), 404
+    _levels, baseline_data = _baseline_state(request.args.get("baseline_key"))
     out = dict(data)
-    out["changed"] = diff_outputs(data, baseline_snapshot)
+    out["changed"] = diff_outputs(data, baseline_data)
     out["pathway_key"] = key
     resp = jsonify(out)
     resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
@@ -413,7 +614,9 @@ def deferred():
     """The Emissions-by-sector chart and the Sankey — deferred out of the default
     payload (compute_pathway's default `defer`) since most tab loads never touch
     them, fetched on demand the moment a tab that does need them activates."""
-    levers = request.get_json()
+    if _rate_limited():
+        return _rate_limit_response()
+    levers = request.get_json(silent=True) or {}
     key = "deferred-" + pathway_key(levers)
     hit = cache_get(key)
     if hit is not None:
@@ -428,16 +631,21 @@ def deferred():
 
 @app.route("/recalc", methods=["POST"])
 def recalc():
-    levers = request.get_json()
-    key, data = compute_pathway(levers)
-    # "changed"/lever_changes/kpi_deltas are all diffs against the current baseline,
-    # which is mutable global state rather than a function of the lever vector — so
-    # they're attached per request and never stored in the cache. dict(data) keeps
+    if _rate_limited():
+        return _rate_limit_response()
+    body = request.get_json(silent=True) or {}
+    levers = body.get("levers") or {}
+    # "changed"/lever_changes/kpi_deltas are all diffs against THIS REQUEST's own
+    # baseline — the pathway_key the client remembers from whenever it last picked a
+    # pathway (see _baseline_state) — never a function of the lever vector itself, so
+    # they're computed per request and never stored in the cache. dict(data) keeps
     # the cached object pristine.
+    baseline_levels, baseline_data = _baseline_state(body.get("baseline_key"))
+    key, data = compute_pathway(levers)
     out = dict(data)
-    out["changed"] = diff_outputs(data, baseline_snapshot)
+    out["changed"] = diff_outputs(data, baseline_data)
     out["lever_changes"] = lever_changes(levers, baseline_levels)
-    out["kpi_deltas"] = kpi_deltas(data, baseline_snapshot)
+    out["kpi_deltas"] = kpi_deltas(data, baseline_data)
     out["pathway_key"] = key
     return jsonify(out)
 
@@ -447,5 +655,78 @@ def cache_stats():
     return jsonify(dict(CACHE_STATS))
 
 
+# ── Cache housekeeping ──────────────────────────────────────────────────────────
+# The on-disk cache is pure disk pressure once a workbook edit or an output-schema
+# change moves WORKBOOK_FP/OUTPUT_FP: every entry under the old fingerprint becomes
+# permanently unreachable (pathway_key() can never produce that prefix again) and just
+# sits there forever otherwise — confirmed live in this project's own cache/pathways/
+# the day this was added: 1,264 of 1,304 files on disk were already dead from a retired
+# output schema, with nothing ever removing them. And even under one unchanged
+# fingerprint, ad hoc lever combinations from real traffic are an inexhaustible input
+# space, so unpruned "live" entries would also grow without bound.
+#
+# Pruned automatically so nobody has to remember to run a script or set up a scheduled
+# task: once at startup (cheap — a stat() per file, no model work, no MODEL_LOCK) and
+# once a day thereafter in a background thread, for as long as this process lives.
+# tools/prune_cache.py wraps the exact same prune()/enumerate_frontier() for anyone who
+# would rather drive it externally (Windows Task Scheduler, cron) or run it once by
+# hand — same function either way, so the two can't drift apart.
+CACHE_MAX_AGE_DAYS = float(os.environ.get("IESS_CACHE_MAX_AGE_DAYS", "5"))
+CACHE_PRUNE_INTERVAL_SECONDS = float(os.environ.get("IESS_CACHE_PRUNE_INTERVAL_SECONDS", 86400))
+_CACHE_KEEP_PREFIX = WORKBOOK_FP + OUTPUT_FP
+
+
+def _frontier_keep_keys():
+    """Every key enumerate_frontier() would (re)compute, kept regardless of age so the
+    always-fast presets/first-tweak frontier never itself goes cold from routine
+    pruning and has to be recomputed on the next visitor who reaches it."""
+    keys = set()
+    for key, _vec in enumerate_frontier():
+        keys.add(key)
+        keys.add("deferred-" + key)
+    return keys
+
+
+def _run_cache_prune():
+    try:
+        result = prune_cache(
+            CACHE_DIR, _CACHE_KEEP_PREFIX,
+            max_age_seconds=CACHE_MAX_AGE_DAYS * 86400,
+            keep_keys=_frontier_keep_keys(),
+        )
+        print(f"cache prune: kept {result['kept']}, deleted {result['deleted']} "
+              f"({result['deleted_bytes'] / 1048576:.1f} MB)", flush=True)
+    except Exception as e:
+        # The cache is an optimisation; a prune failure must never take the server
+        # down or block a request, the same posture cache_put() already takes.
+        print(f"cache prune failed (non-fatal): {e}", flush=True)
+
+
+def _cache_janitor_loop():
+    while True:
+        time.sleep(CACHE_PRUNE_INTERVAL_SECONDS)
+        _run_cache_prune()
+
+
+def start_cache_janitor():
+    """Run the prune once now, then spawn the daily background thread.
+
+    Deliberately NOT called at module scope. tools/precompute_pathways.py and
+    tools/prune_cache.py both `import app` purely to reuse its already-loaded
+    engine/config (WORKBOOK_FP, ALL_LEVER_ROWS, enumerate_frontier, ...) — that import
+    must not have the side effect of actually deleting cache files itself, or a CLI
+    tool's own --dry-run becomes a lie the moment it imports app.py to get at these
+    helpers (found exactly this way while testing prune_cache.py: its "would delete: 0"
+    dry-run report followed a startup log line that had already deleted 1,264 files).
+    Called only from the __main__ guard below, i.e. only when this file is actually
+    being run as the server.
+    """
+    _run_cache_prune()  # once at startup, synchronously — cheap, and means an
+                         # operator sees the effect immediately in the startup log
+                         # rather than wondering if the background thread is running.
+    threading.Thread(target=_cache_janitor_loop, daemon=True).start()
+
+
 if __name__ == "__main__":
+    start_cache_janitor()
     app.run(debug=False, port=5051)

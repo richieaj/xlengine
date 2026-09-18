@@ -1,0 +1,8 @@
+# Python bytecode. These were tracked (41 files) purely because there was no
+# .gitignore; they are rebuilt on every import and their churn is noise.
+__pycache__/
+*.py[cod]
+
+# Excel's lock artifact, written whenever the workbook is open in Excel. A
+# ~165 B file that must never ship.
+~$*.xlsx

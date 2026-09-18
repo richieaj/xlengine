@@ -526,11 +526,27 @@ def compute_per_capita_supply_chart(eng):
 
 
 def compute_capacity_chart(eng):
+    # Sheet I.b's year columns are shifted one column earlier than every other
+    # technology sheet here — the same fact already established for its
+    # generation row (see _IB_SHEET_YEAR_COLS below, and the comment there for
+    # how it was confirmed). It's a property of the whole sheet's year-header
+    # row, not just the one cell that was checked first: row 465 (Coal Power
+    # Stations' own "Cumulative Installed Capacity" row) follows the identical
+    # D..I layout — confirmed directly, I.b!J465 is blank (0) exactly like
+    # I.b!J470 is, and I.b!D465 through I.b!I465 hold six real, smoothly
+    # increasing values where the un-shifted E..J read was quietly handing back
+    # 2047 as 0 (a blank cell) and every other year as the next year's figure.
+    # This function was missed when that fix was applied to the generation
+    # chart, so Coal Power Stations was the one series in Installed Capacity
+    # silently reading one year ahead of every other series in the same chart.
     series = {}
     for name in CAPACITY_ORDER:
         vals = []
-        for col in IMPORT_DEPENDENCE_YEAR_COLS:
-            total_gw = sum(eng.read_cell(sheet, f"{col}{row}") or 0.0 for sheet, row in CAPACITY_ROWS[name])
+        for i, col in enumerate(IMPORT_DEPENDENCE_YEAR_COLS):
+            total_gw = 0.0
+            for sheet, row in CAPACITY_ROWS[name]:
+                read_col = _IB_SHEET_YEAR_COLS[i] if sheet == "I.b" else col
+                total_gw += eng.read_cell(sheet, f"{read_col}{row}") or 0.0
             vals.append(round(total_gw, 3))
         series[name] = vals
     series["Waste to Electricity"] = [

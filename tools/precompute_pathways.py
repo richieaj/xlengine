@@ -49,28 +49,12 @@ def _app():
 def enumerate_frontier():
     """The 4 example pathways plus every single-lever deviation from each.
 
-    Deduplicated by pathway_key, because different raw vectors can canonicalise to the
-    same state — e.g. requesting level 4 on a lever that maxes at 3.
+    Now just app.py's own definition — see it there for the reasoning
+    (deduplication by pathway_key, etc.). Kept as a thin wrapper here rather than
+    inlined at call sites so this script doesn't have to change if a caller imports
+    it as `precompute_pathways.enumerate_frontier`.
     """
-    APP = _app()
-    lever_ids = sorted(APP.ALL_LEVER_ROWS, key=lambda k: APP.ALL_LEVER_ROWS[k])
-    seen, states = set(), []
-
-    def add(vec):
-        key = APP.pathway_key(vec)
-        if key not in seen:
-            seen.add(key)
-            states.append((key, vec))
-
-    for level in (1, 2, 3, 4):
-        base = {lid: level for lid in lever_ids}
-        add(base)
-        for lid in lever_ids:
-            for alt in range(1, APP.ALL_LEVER_MAX[lid] + 1):
-                vec = dict(base)
-                vec[lid] = alt
-                add(vec)
-    return states
+    return _app().enumerate_frontier()
 
 
 def _compute_one(item):
