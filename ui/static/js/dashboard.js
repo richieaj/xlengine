@@ -91,11 +91,22 @@ const SERIES_COLOR = {
   "Telecom, Cooking & Transport": PALETTE.teal,
   "Industry": PALETTE.blue,               // Sankey tech blue
   "Heavy Industry": PALETTE.blue,
-  "Buildings": PALETTE.lime,
-  "Residential Buildings": PALETTE.lime,
+  // Buildings red / Agriculture green is a deliberate SWAP of what these two
+  // used to be (Buildings lime, Agriculture red). It is a pure exchange between
+  // two series that appear together on both charts carrying them (the All
+  // Energy demand chart and the Electricity demand chart), so each of those
+  // charts ends up with exactly the same SET of colours as before — the
+  // palette's tuned minimum luminance gap between any two co-occurring series
+  // is therefore untouched. The one chart where they do not both appear is
+  // emissions-by-sector (Agriculture yes, Buildings no); lime is unused there,
+  // and the resulting worst gap on that chart measures 0.044, still clear of
+  // the 0.040 floor the palette was solved against.
+  "Buildings": PALETTE.red,
+  "Residential Buildings": PALETTE.red,   // mirrors Buildings; not currently
+                                          // rendered as its own chart series
   "Commercial Buildings": PALETTE.ltteal,
   "Cooking": PALETTE.amber,               // Sankey carrier amber
-  "Agriculture": PALETTE.red,             // Sankey loss red
+  "Agriculture": PALETTE.lime,
   "Telecom": PALETTE.violet,              // Sankey demand violet
   "Miscellaneous": PALETTE.slate,
   "Non-energy use": PALETTE.ltviolet,
@@ -207,7 +218,12 @@ if (window.Chart) {
   Chart.defaults.maintainAspectRatio = false;
 }
 
-let baseline = null;
+// This tab's own baseline pathway key, echoed back to the server on every /recalc
+// (see app.py's "Per-pathway lever vectors" comment for why the server no longer
+// keeps this itself: a global baseline would leak between browser tabs/visitors).
+// Set whenever this tab picks a new pathway; left alone by a plain lever tweak, so
+// "what changed" always reads against the pathway this tab actually started from.
+let myBaselineKey = null;
 let charts = {};
 let recalcTimer = null;
 
@@ -811,7 +827,18 @@ function renderStackedChart(canvasId, chartData, changedSeries, opts) {
           },
           x: {
             title: { display: true, text: "Year", color: "#000000", font: TYPE.axis },
-            ticks: { color: "#000000", font: TYPE.axis },
+            // align:"inner" pulls the FIRST and LAST tick labels inward instead
+            // of centring them on the plot's edges. Measured on the Installed
+            // Capacity chart: the legend sits at legendLeft === chartArea.right
+            // (783px, no gap by design), while "2047" is centred on that same
+            // edge and is 25px wide — so it overran into the legend by 12px.
+            // Every stacked chart here uses legendPosition:"right", so this was
+            // not one chart's problem; it was the shared renderer's, and the
+            // wider the label the worse it got. Fixed at the axis rather than
+            // by padding the layout: layout.padding.right moves the legend in
+            // by the same amount it moves the plot edge, so the gap between
+            // them stays zero and the overlap survives.
+            ticks: { color: "#000000", font: TYPE.axis, align: "inner" },
             grid: { display: false },
             border: { display: false },
           },
@@ -1044,6 +1071,10 @@ function requestModel(task) {
 async function runSetScenario(level) {
   const lvl = parseInt(level, 10);
   const data = await postJSON("/set_scenario", { level: lvl });
+  // Picking a pathway sets THIS TAB's own baseline going forward — later lever
+  // tweaks diff against it via baseline_key in runRecalc(), never against
+  // whatever pathway some other visitor's tab most recently picked.
+  myBaselineKey = data.pathway_key || null;
   for (const id of ids) setLeverLevel(id, lvl);
   updateAllSubcatQuickButtons();
   applyResult(data);
@@ -1054,7 +1085,7 @@ async function runRecalc() {
   // that waited in the queue picks up every click made while it waited.
   const levers = {};
   for (const id of ids) levers[id] = document.getElementById(id).value;
-  applyResult(await postJSON("/recalc", levers));
+  applyResult(await postJSON("/recalc", { levers, baseline_key: myBaselineKey }));
 }
 
 function setScenario(level) { requestModel({ kind: "scenario", level: level }); }
@@ -1392,6 +1423,22 @@ const ARROW_SVG = '<svg class="in-arrow" viewBox="0 0 24 24" role="img" aria-lab
   '<path d="' + ARROW_PATH + '" fill="none" stroke="currentColor" stroke-width="2.4" ' +
   'stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
+// Sankey node names come from the workbook's own Flows sheet (read_flows()'s
+// From/To columns), not from any real end-user input — but the tooltip HTML
+// (showTip(), below) concatenates them into a string and assigns it via
+// innerHTML rather than a safe DOM API, unlike every other place this page
+// mixes workbook-sourced text into markup (the lever tooltip and Insights
+// panel both build their nodes with textContent specifically to avoid this).
+// A future edit to that one sheet that introduces a literal "<" would render
+// as markup instead of text, so the three name interpolations in the Sankey
+// tooltips are escaped through this before concatenation — cheap, and closes
+// the one gap in an otherwise-consistent pattern.
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 // addInsightsGroupLabel() lived here — a small-caps label + rule ahead of each
 // group of insight lines, back when the panel showed two lists ("Levers
 // changed", then "Effect on the four KPIs"). The lever list is gone (see
@@ -1659,6 +1706,16 @@ document.querySelectorAll(".pill-tab[data-view]").forEach((tab) => {
     // one. It also reads better there: it describes the pathway, and the
     // pathway controls are in that band.
     const isEnergyFlows = tab.dataset.view === "energy-flows";
+    // Energy Flows is the Sankey and nothing else. The Custom Pathways band —
+    // the GHG 2047 gauge, the lever columns and the Insights panel — is page
+    // furniture on every other tab, but this view is one diagram asking one
+    // question, and a full-bleed Sankey with a control deck under it is two
+    // unrelated screens stacked. `flows-only` on <body> takes the whole band
+    // out; the levers keep their state, they are just not on screen here
+    // (switching back to any other tab restores them untouched).
+    // Set before renderSankey below so the diagram measures the page it will
+    // actually be drawn on.
+    document.body.classList.toggle("flows-only", isEnergyFlows);
     if (isEnergyFlows || tab.dataset.view === "emissions") {
       ensureDeferredData();
     }
@@ -1827,15 +1884,28 @@ document.querySelectorAll(".lg-subcat-row").forEach((row) => {
     const ok = ids.length > 1 ? renderGroup(row, lever, ids.length) : renderSingle(row, lever);
     tip.hidden = !ok;
     if (!ok) return false;
-    place(lever);
+    place(row, lever);
     return true;
   }
 
-  function place(lever) {
+  // Anchored on the LEVER for horizontal centring (it looks right hugging the
+  // track you're hovering), but the "never cover it" guarantee is measured
+  // against the whole ROW's rect, not the lever's — a long lever name still
+  // reads at full width in the row via `title`/ellipsis, and clamping only
+  // against the (shorter) lever track let the band-edge clamp below slide the
+  // popup back down onto the row's own label when there wasn't enough room on
+  // either side to clear it. Popup covering the control it describes ("Level
+  // 3 of 4 / [note]" sitting on top of "Hydrogen Production for Telecom and
+  // Transport") is the one placement failure worse than spilling past the
+  // band, so the final step re-checks against the row and, only if the
+  // regular above/below placement still overlaps it, pins the popup fully
+  // outside the row even if that means leaving the band's own bounds.
+  function place(row, lever) {
     const scale = parseFloat(
       getComputedStyle(document.documentElement).getPropertyValue("--ui-scale")) || 1;
     const px = (v) => v / scale;               // real px -> logical px
     const a = lever.getBoundingClientRect();
+    const r = row.getBoundingClientRect();
     const deck = document.querySelector(".control-deck-h");
     const band = deck ? deck.getBoundingClientRect()
                       : { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth };
@@ -1849,10 +1919,27 @@ document.querySelectorAll(".lg-subcat-row").forEach((row) => {
     // pin the box off the left edge.
     left = Math.min(Math.max(left, minL), Math.max(minL, maxL));
 
+    const rowTop = px(r.top), rowBottom = px(r.bottom);
     const minT = px(band.top) + PAD, maxT = px(band.bottom) - h - PAD;
-    let top = px(a.top) - h - 10;
-    if (top < minT) top = px(a.bottom) + 10;
+    const spaceAbove = rowTop - minT;
+    const spaceBelow = maxT - rowBottom; // room, in popup-top terms, below the row
+
+    // Prefer whichever side actually fits the popup; if neither does, prefer
+    // whichever has more room (matches the old above-first behaviour when
+    // there's a tie or when both fit).
+    let top = spaceBelow >= h || spaceBelow >= spaceAbove
+      ? rowBottom + 10
+      : rowTop - h - 10;
     top = Math.min(Math.max(top, minT), Math.max(minT, maxT));
+
+    // The clamp above can still slide the box back over the row when the
+    // band is shorter than the popup on both sides at once (a long ambition
+    // note in a short deck). Don't let that happen: push it fully clear of
+    // the row on the roomier side, even past the band edge if it must — the
+    // control being described must stay visible.
+    if (top < rowBottom + 2 && top + h > rowTop - 2) {
+      top = spaceBelow >= spaceAbove ? rowBottom + 10 : rowTop - h - 10;
+    }
 
     tip.style.left = Math.round(left) + "px";
     tip.style.top = Math.round(top) + "px";
@@ -2062,9 +2149,38 @@ const SANKEY_NODE_COLORS = {
   source: "#22d3a8", tech: "#4f9bf2", carrier: "#f2b84b", loss: "#e05263", demand: "#7b6ef6",
 };
 
+/* Fit the diagram to whatever vertical space is actually left, so Energy Flows
+   never scrolls.
+
+   The height used to be a CSS clamp guessing at the page chrome
+   (`100vh - 190px`), and a guess is wrong the moment any band above it changes
+   height — which is what put a scrollbar on the tab. This measures instead:
+   the gap between the top of the SVG as currently laid out and the top of the
+   footer is, by definition, the room the diagram has.
+
+   Units are the fiddly part. `zoom` is applied to <body>, so
+   getBoundingClientRect() returns RENDERED pixels while a CSS height we set on
+   the SVG is a LOGICAL length the zoom then multiplies — hence the divide by
+   scale on the way out. documentElement.clientHeight is unzoomed, which is why
+   the footer is measured rather than assumed. */
+function sizeSankeyToViewport(svgEl) {
+  const scale = parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue("--ui-scale")) || 1;
+  const footer = document.querySelector(".site-footer");
+  const top = svgEl.getBoundingClientRect().top;
+  if (top <= 0) return;  // not laid out yet — leave the CSS fallback in place
+  const footerH = footer ? footer.getBoundingClientRect().height : 0;
+  const PAD = 10 * scale;  // .sankey-card's own bottom padding, rendered
+  const avail = document.documentElement.clientHeight - top - footerH - PAD;
+  // Floor at 320 rendered px: below that the diagram is unreadable and a
+  // scrollbar is the better failure. Ceiling is just the room available.
+  svgEl.style.height = Math.max(320, avail) / scale + "px";
+}
+
 function renderSankey(yearData) {
   if (!yearData || !window.d3 || !window.d3.sankey) return;
   const svgEl = document.getElementById("sankeySvg");
+  sizeSankeyToViewport(svgEl);
   const width = svgEl.clientWidth || svgEl.parentElement.clientWidth;
   const height = svgEl.clientHeight || 500;
   const svg = d3.select(svgEl).attr("viewBox", `0 0 ${width} ${height}`);
@@ -2235,18 +2351,20 @@ function renderSankey(yearData) {
     .on("mousemove", (event, d) => {
       const src = throughput(d.source);
       const share = src ? (d.value / src) * 100 : 0;
-      showTip(event, "<b>" + d.source.name + " " + ARROW_SVG + " " + d.target.name + "</b><br>" +
-        d.value.toFixed(2) + " Mtoe<br>" + share.toFixed(0) + "% of " + d.source.name);
+      showTip(event, "<b>" + escapeHtml(d.source.name) + " " + ARROW_SVG + " " + escapeHtml(d.target.name) + "</b><br>" +
+        d.value.toFixed(2) + " Mtoe<br>" + share.toFixed(0) + "% of " + escapeHtml(d.source.name));
     })
     .on("mouseenter", (event, d) => highlight(new Set([d]), new Set([d.source, d.target])))
     .on("mouseleave", () => { tooltip.classList.remove("show"); clearHighlight(); });
 
   rect
     .on("mousemove", (event, d) => {
-      const ins = (d.targetLinks || []).length;
-      const outs = (d.sourceLinks || []).length;
-      showTip(event, "<b>" + d.name + "</b><br>" + throughput(d).toFixed(2) + " Mtoe<br>" +
-        ins + " in · " + outs + " out — full route traced");
+      // Name and throughput only. This used to add a third line, "N in · M out
+      // — full route traced": the link counts are visible in the diagram the
+      // pointer is already on, and "full route traced" described the highlight
+      // that the hover itself is performing, so all three read as chatter
+      // beside the one number the tooltip exists to give.
+      showTip(event, "<b>" + escapeHtml(d.name) + "</b><br>" + throughput(d).toFixed(2) + " Mtoe");
     })
     .on("mouseenter", (event, d) => { const t = trace(d); highlight(t.litLinks, t.litNodes); })
     .on("mouseleave", () => { tooltip.classList.remove("show"); clearHighlight(); });
@@ -2344,17 +2462,32 @@ function fitUiScale() {
   const root = document.documentElement;
   let scale = parseFloat(getComputedStyle(root).getPropertyValue("--ui-scale")) || 1;
 
-  for (let pass = 0; pass < 6; pass++) {
-    const bottom = footer.getBoundingClientRect().bottom;
-    if (bottom <= 0) return;  // not laid out yet (hidden tab, pre-paint)
-    // The 0.995 leaves the fitted content a hair inside the window: land it
-    // exactly on the edge and rounding can hand us a scrollbar anyway.
-    const ratio = (root.clientHeight * 0.995) / bottom;
-    if (Math.abs(ratio - 1) < 0.004) break;
-    const next = Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, scale * ratio));
-    if (next === scale) break;  // clamped — no point iterating further
-    scale = next;
-    root.style.setProperty("--ui-scale", String(scale));
+  // Measure with every space-absorbing rule switched off (body.measuring-fit
+  // in dashboard.css: the deck's and lever grid's flex-grow, and the footer's
+  // `margin-top: auto`). Those three exist so the deck's background reaches
+  // the footer on a short page, but they also mean the laid-out page is always
+  // exactly as tall as the window — so feeding that measurement back in here
+  // would give the loop nothing to converge on and walk the scale down to
+  // UI_SCALE_MIN a pass at a time. With them off, the footer's bottom edge is
+  // the natural end of the content again, which is what the scale must fit.
+  // The class is removed in `finally`: it must never survive a throw, or the
+  // deck stops filling and the gap comes back with no obvious cause.
+  document.body.classList.add("measuring-fit");
+  try {
+    for (let pass = 0; pass < 6; pass++) {
+      const bottom = footer.getBoundingClientRect().bottom;
+      if (bottom <= 0) return;  // not laid out yet (hidden tab, pre-paint)
+      // The 0.995 leaves the fitted content a hair inside the window: land it
+      // exactly on the edge and rounding can hand us a scrollbar anyway.
+      const ratio = (root.clientHeight * 0.995) / bottom;
+      if (Math.abs(ratio - 1) < 0.004) break;
+      const next = Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, scale * ratio));
+      if (next === scale) break;  // clamped — no point iterating further
+      scale = next;
+      root.style.setProperty("--ui-scale", String(scale));
+    }
+  } finally {
+    document.body.classList.remove("measuring-fit");
   }
 
   // Re-drive the canvases (see resizeChartsToContainers) — never inline here,

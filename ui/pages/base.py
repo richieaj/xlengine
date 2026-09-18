@@ -25,8 +25,13 @@ The rail's Insights block is persistent across every tab and permanently
 rendered (no button/toggle) — a plain-language readout of global lever
 state, the same underlying data the pathway chip summarises at a glance:
 `data.lever_changes` / `data.kpi_deltas` on every recalc response, turned
-into prose by dashboard.js's renderInsights(). The rail is hidden on the
-Energy Flows tab only, so the Sankey gets the extra width.
+into prose by dashboard.js's renderInsights().
+
+The whole <section class="control-deck-h"> below the grid — GHG 2047 gauge,
+lever columns and Insights — is hidden on the Energy Flows tab, which shows
+the Sankey and nothing else. dashboard.js toggles `flows-only` on <body> in
+the tab handler; the rule is `body.flows-only .control-deck-h` in
+dashboard.css. The markup stays in the DOM, so lever state survives the trip.
 
 Content is assembled by app.py via the same str.replace() token-substitution
 pattern already used in this project (never %-formatting — see the historical
@@ -74,7 +79,15 @@ def render_base():
                rectangle deliberate and matched to the one opposite. -->
       <img class="site-banner-logo site-banner-logo-plated" src="/static/img/niti-aayog-logo-vector.svg" alt="NITI Aayog">
     </span>
-    <span class="site-banner-title">India Energy Security Scenarios</span>
+    <!-- The wordmark replaces the plain-text title that stood here. It is the
+         project's own lockup and carries both the Devanagari and the English
+         name plus the 2047, which the text line could not. Plated like the two
+         logos either side of it, though for a different reason than ACPET's:
+         this one is a genuine transparent PNG, but its type is #4E565A on a
+         #3F4247 band (~1.3:1), so the plate is what makes it readable.
+         The alt text is the English line so nothing is lost without images. -->
+    <img class="site-banner-title-logo site-banner-logo-plated"
+         src="/static/img/ICSS-logo-small.png" alt="India Energy Security Scenarios 2047">
     <span class="site-banner-side site-banner-actions">
       <img class="site-banner-logo site-banner-logo-plated" src="/static/img/ACPET_LOGO_White.png" alt="ACPET">
       <button type="button" class="menu-btn" id="app-menu-btn"
@@ -123,8 +136,15 @@ def render_base():
              keyboard/touch behaviour for free, and it can display the "Custom
              pathway" state without inventing anything. That option is
              disabled because it is a state you reach by moving a lever, not
-             one you can pick. The dot keeps the effort level readable as
-             colour, on the same ramp as the levers themselves. -->
+             one you can pick.
+             The effort level is carried as colour on the same ramp as the
+             levers: data-level here selects a wash and an edge colour, which
+             the <select> itself wears (see .pathway-chip-select in
+             dashboard.css). This div is a bare flex row — it used to be a
+             white 999px pill around the whole thing, which put an oval
+             non-clickable outline around the rectangular control that is the
+             actual chooser. The dot stays as a second, non-colour-dependent
+             channel for the same fact. -->
         <div class="pathway-chip" data-level="1">
           <span class="pathway-chip-dot" aria-hidden="true"></span>
           <label class="pathway-chip-label" for="scenario-select">Pathway</label>
@@ -235,7 +255,10 @@ def render_base():
        itself to fit (dashboard.js's fitUiScale), so there is no blessed
        resolution left to advise. -->
   <footer class="site-footer">
-    &copy; 2026 NITI AAYOG | ACPET |
+    <!-- The centre's name in full rather than the "ACPET" initialism. The
+         masthead logo already carries the short form, and the footer is the
+         one place on the page with room to say who that is. -->
+    &copy; 2026 NITI AAYOG | ASHOKA CENTRE FOR A PEOPLE-CENTRIC ENERGY TRANSITION |
     DOWNLOADS: <a href="#">ONE PAGER DOCS</a> | <a href="#">IESS V3.0 EXCEL</a>
   </footer>
 </main>

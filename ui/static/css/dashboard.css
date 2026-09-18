@@ -91,22 +91,41 @@ html, body { min-height: 100%; margin: 0; }
   --rule-accent: #8FAEC9;
   /* ── The GHG gauge, on dark ─────────────────────────────────────────────
      The box was a light blue (#C8E1F5) with a deep-denim track and a light
-     green meter on it. Every pair in that arrangement was individually legal
-     and the whole still read badly: the meter is a LIGHT green, so on a light
-     box the bar and its surround were the same weight and the gauge stopped
-     announcing itself as a gauge — measured, green against box was 1.26:1.
+     meter on it. Every pair in that arrangement was individually legal and the
+     whole still read badly: the meter is LIGHT, so on a light box the bar and
+     its surround were the same weight and the gauge stopped announcing itself
+     as a gauge — measured, 1.26:1 meter against box.
      Dark box fixes it at the root: a light meter on a dark ground is the
      highest-contrast arrangement available, and the numbers all improve
      rather than trade off. Measured, all four pairs:
-       meter on track       5.07:1   (was 2.63)
+       meter on track       6.18:1   (lime managed 5.07; on the old light box 2.63)
        track inside box     1.76:1   (reads as a recess)
        labels on box       12.91:1   (was 13.41 dark-on-light — a wash)
        box vs the white page above  17.52:1, vs the deck band below 14.96:1
      Navy rather than black, so it belongs with --rule-accent and
-     --deck-divider rather than introducing a fifth neutral. */
+     --deck-divider rather than introducing a fifth neutral.
+
+     The meter is AMBER, not the lime it started as. A green bar that fills up
+     as emissions RISE reads backwards — full-and-green says "good, full marks"
+     when it actually means the worst pathway the model produces (9.6 GtCO2 at
+     least effort, against 2.0 at heroic). Amber is the warning tone the
+     quantity deserves, and it measures strictly better than the lime on both
+     pairs that matter: 6.18:1 against the track (was 5.07) and 11.73:1 for the
+     readout that rides inside the fill (was 9.62). Note the lime is still
+     correct elsewhere and was NOT changed — .stat-clean (clean share) and
+     PALETTE.lime are "more is better" quantities; this one is not.
+
+     True red was measured and rejected. The chart/Sankey red (#DD4153) gives
+     only 2.35:1 against the track — the filled bar stops being distinguishable
+     from the unfilled part, which defeats a meter — and it clears 4.5:1 with
+     NEITHER dark nor white text, so the readout would be unreadable whichever
+     way it flipped. Deep #C62828 is worse at 1.77:1. Only a light coral
+     (#FF7A6B: 3.91:1 track, 7.42:1 text) works as a red here, and it is still
+     weaker than the amber — that is the value to use if red is ever wanted,
+     and the track would want revisiting alongside it. */
   --gauge-box: #0F1A28;
   --gauge-track: #2E4460;
-  --gauge-meter: #79CE3B;   /* PALETTE.lime — the chart/Sankey register */
+  --gauge-meter: #F4C56C;   /* PALETTE amber — the chart/Sankey register */
   --gauge-ink: #D6DEE8;
   /* ── Effort ramp (ambition level 1→4) ────────────────────────────────────
      ONE definition, referenced everywhere the ramp appears: the lever
@@ -282,7 +301,11 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
 .site-banner {
   flex: none;
   margin: calc(-1 * var(--page-top)) calc(-1 * var(--page-x)) 8px;
-  padding: 10px var(--page-x);
+  /* 6px, down from 10. The band grew when the wordmark replaced the text
+     title; trimming the padding takes some of that back without touching the
+     marks themselves, which is the part that had to stay legible. The plates
+     carry their own padding, so the band is not tight against the artwork. */
+  padding: 6px var(--page-x);
   /* Same band colour as the footer, so the page is bracketed by one dark grey
      top and bottom (and the same colour the menu drawer's own header uses).
      EU-Calc's masthead is a dark grey bar too. No border-bottom: the colour
@@ -296,7 +319,11 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
   gap: 12px;
 }
 .site-banner-side { min-width: 0; }
-.site-banner-logo { height: 36px; width: auto; display: block; }
+/* 48px, up from 36. At 36 both marks were small enough that the NITI emblem's
+   fine navy linework and ACPET's lettering were sitting there unreadable —
+   present as shapes, not identifiable. 48 clears that and still reads as
+   secondary to the 64px wordmark between them. */
+.site-banner-logo { height: 48px; width: auto; display: block; }
 /* Both marks sit on a white plate on the dark band. The NITI one is
    navy-and-gold artwork with no white variant in img/, and filtering an
    official emblem to white would throw away its gold. The ACPET one is a PNG
@@ -316,10 +343,27 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
    step (--t-chart, 22px) rather than the 29px it used to have, because the
    scale is closed. It is deliberately not the KPI step: the largest type on
    the page should be the projection, not the masthead. */
-.site-banner-title {
-  font: var(--t-chart);
-  letter-spacing: .02em;
-  color: #fff;   /* 10.2:1 on the band */
+/* The centre wordmark. .site-banner-title (the plain-text version) was here;
+   the lockup in img/ says the same thing in both scripts and is the project's
+   own mark, so the text is now only the img's alt.
+
+   It IS a real transparent PNG (RGBA, corners at alpha 0) — unlike ACPET's,
+   which only claims to be. It is plated anyway, for contrast rather than for
+   a painted-in background: the wordmark's type is #4E565A and this band is
+   #3F4247, about 1.3:1, so unplated the words would be there and unreadable.
+
+   64px against the 36px side logos. The artwork is 925x270, ~3.4:1, so height
+   is the wrong axis to judge it by — matched to the logos it reads as a third
+   small badge, and the Devanagari line in particular needs the pixels to
+   resolve at all. This is the masthead's subject; the other two are credits.
+   max-width stops it crowding them on a narrow window, and `height: auto`
+   under that cap keeps the ratio. */
+.site-banner-title-logo {
+  height: 64px; width: auto; max-width: min(52vw, 660px);
+  object-fit: contain; display: block;
+  /* Tighter than the side logos' 3px/7px: at this size the default pad drew a
+     wide white slab, and the artwork already carries its own margin. */
+  padding: 2px 8px;
 }
 
 /* ── Masthead menu ────────────────────────────────────────────────────── */
@@ -430,21 +474,26 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
    moved here out of the Custom Pathways head, where it duplicated the state
    this chip was already reporting. Dot colour keys off the same four-effort
    ramp as the levers themselves. */
+/* No box of its own. This used to be a white 999px pill wrapping the dot, the
+   label and the select — so the control had two nested outlines, an oval one
+   around a rectangular dropdown inside it, and the oval was the louder of the
+   two while being the part that was not clickable. The wrapper is now a bare
+   flex row; the <select> is the only bordered thing, which is correct because
+   the <select> is the only thing you can operate. */
 .pathway-chip {
   display: flex; align-items: center; gap: 8px; flex: none;
-  background: #fff; border: 1px solid var(--line); border-radius: 999px;
-  /* Less on the right: the select carries its own chevron padding. */
-  padding: 3px 6px 3px 14px; font: var(--t-body);
-  transition: border-color .12s;
+  background: transparent; border: 0; border-radius: 0;
+  padding: 0; font: var(--t-body);
 }
-.pathway-chip:hover { border-color: #9AA2AC; }
-/* Borderless inside the chip — the pill is already the control's edge, and a
-   second bordered box inside it reads as two controls. The chevron is drawn
-   as a background image rather than as an added element, so this stays one
-   native <select> with nothing overlaying its hit area. */
+/* The dropdown IS the control's edge now (it used to be borderless inside the
+   pill). 7px radius rather than the pill's 999px: it is a rectangular control
+   with a chevron, and a fully rounded end on a box this wide reads as a tag
+   rather than as something you can open. The chevron stays a background image
+   rather than an added element, so this is still one native <select> with
+   nothing overlaying its hit area. */
 .pathway-chip-select {
-  height: 28px; padding: 0 26px 0 4px; margin: 0;
-  border: 0; border-radius: 999px; background-color: transparent;
+  height: 28px; padding: 0 26px 0 10px; margin: 0;
+  border: 1px solid var(--line); border-radius: 7px; background-color: #fff;
   color: var(--ink); font: var(--t-body); font-weight: 600; cursor: pointer;
   appearance: none; -webkit-appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2314161A' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
@@ -456,12 +505,46 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
 /* The custom state reads as a state, not as a selection: no preset is loaded,
    so the control is shown unset rather than pretending otherwise. */
 .pathway-chip-select:invalid, .pathway-chip-select option[value=""] { color: var(--muted); }
-.pathway-chip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--lvl-1); flex: none; }
-.pathway-chip[data-level="1"] .pathway-chip-dot { background: var(--lvl-1); }
-.pathway-chip[data-level="2"] .pathway-chip-dot { background: var(--lvl-2); }
-.pathway-chip[data-level="3"] .pathway-chip-dot { background: var(--lvl-3); }
-.pathway-chip[data-level="4"] .pathway-chip-dot { background: var(--lvl-4); }
-.pathway-chip[data-level="custom"] .pathway-chip-dot { background: #C8D0DC; }
+/* ── The dropdown carries the effort level ───────────────────────────────
+   An 8px dot was the only thing that changed when the pathway changed, in a
+   row full of other small round things — the correct signal at a size nobody
+   would notice. The control itself takes the level's colour now: a wash behind
+   it and the level's own hue on its edge, which is a change to an object the
+   width of a control rather than to 50 square pixels of it.
+
+   The variables are still defined on .pathway-chip (the attribute selector
+   needs the element carrying data-level) but they are CONSUMED by the select
+   below, which is the only box left after the pill was removed.
+
+   Wash + edge, not a solid fill, and the text stays ink. The ramp spans
+   #9AA2AC to #25702C, so a solid fill would need white text on the dark levels
+   and dark text on the light ones — the control would invert halfway up its
+   own scale, and level 1 in white would be 2.3:1. The washes are the ramp
+   colours at roughly 8% on white, all of which hold --ink above 15:1.
+
+   The edge is a 1px border PLUS a 1px inset ring of the same colour rather
+   than a 2px border: the ring costs no layout, so switching pathway cannot
+   shift the tab row beside it by a pixel. --chip-edge also drives :hover, so
+   the hover state stops overriding the level colour with grey. */
+.pathway-chip-select {
+  background-color: var(--chip-wash, #fff);
+  border-color: var(--chip-edge, var(--line));
+  box-shadow: inset 0 0 0 1px var(--chip-edge, transparent);
+  transition: background-color .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+.pathway-chip-select:hover { border-color: var(--chip-edge, #9AA2AC); }
+.pathway-chip[data-level="1"] { --chip-edge: var(--lvl-1); --chip-wash: #F1F3F5; }
+.pathway-chip[data-level="2"] { --chip-edge: var(--lvl-2); --chip-wash: #EDF4FA; }
+.pathway-chip[data-level="3"] { --chip-edge: var(--lvl-3); --chip-wash: #E9F1F7; }
+.pathway-chip[data-level="4"] { --chip-edge: var(--lvl-4); --chip-wash: #EAF4EB; }
+/* Custom is not a point on the ramp — no preset is loaded — so it reads as
+   unset: the neutral the dot already used, on the palest wash. */
+.pathway-chip[data-level="custom"] { --chip-edge: #C8D0DC; --chip-wash: #F7F9FB; }
+
+/* The dot stays. It is redundant with the wash by design — colour is the only
+   channel carrying this, and the dot is what keeps it legible to anyone who
+   cannot separate the washes from each other or from white. */
+.pathway-chip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--chip-edge, var(--lvl-1)); flex: none; transition: background-color .18s ease; }
 /* ── One role for the small-caps mono ─────────────────────────────────────
    The mono face at small size with wide letter-spacing was on section
    headers, KPI captions, the footer, the pathway name and a clock all at
@@ -632,13 +715,42 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
    `display: contents` on .stat-stack, so its two cards become grid items of
    this row directly — no markup change, and all-energy.py keeps a wrapper it
    still needs at the narrow breakpoint. */
+/* One grey tray holding three white blocks. The row was three separate
+   accent-coloured cards floating on the page, which read as three unrelated
+   widgets; it then became one white box with hairline dividers, which read as
+   flat. The tray is the middle answer: --surface-2 grey behind, the three
+   blocks raised off it in white with their own radius, so they group as one
+   object but each figure still has an edge of its own. Separation is now the
+   gap plus the tone step — no dividers, no per-block colour. */
 .stat-row {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr);
-  gap: 10px; margin-bottom: 10px; align-items: stretch;
+  gap: 8px; margin-bottom: 10px; align-items: stretch;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 12px; padding: 8px;
 }
 .stat-stack { display: contents; }
-.stat-card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 9px 14px 8px; }
+/* The white block. `--stat-lift` is the hover translation, kept as a variable
+   so the transform composes in one place; the border lightens to the accent
+   at 28% rather than switching colour outright, which at this size is a hint
+   that the block is live and not a second state to read. */
+.stat-card {
+  background: #fff; border: 1px solid transparent; border-radius: 9px;
+  padding: 9px 14px 8px;
+  box-shadow: 0 1px 2px rgba(16, 17, 20, .05);
+  transition: box-shadow .16s ease, transform .16s ease, border-color .16s ease;
+  will-change: transform;
+}
+.stat-card:hover {
+  border-color: rgba(41, 105, 154, .28);
+  box-shadow: 0 3px 10px rgba(16, 17, 20, .09);
+  transform: translateY(-1px);
+}
+/* The figure is the thing the hover is pointing at, so it takes the accent
+   while the block is under the cursor. Caption and label stay grey — they are
+   the parts that have to hold contrast, and neither moves. */
+.stat-card .stat-value { transition: color .16s ease; }
+.stat-card:hover .stat-value { color: var(--accent); }
 .stat-label { font: var(--t-caption); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 /* 30px, down from the --t-kpi step's 40. The row was taking more height than
    the two charts beneath it warranted, and --ui-scale then shrank everything
@@ -648,30 +760,20 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
    in the .num block has to stay after this — it does. */
 .stat-value { font: var(--t-kpi); font-size: 30px; color: var(--ink); margin: 4px 0 2px; }
 .stat-note { font: var(--t-label); color: var(--muted); }
-.stat-note-accent { color: var(--lvl-4); }
+/* Was the level-4 green — the last of the per-card colour after the row
+   became one box, and the only caption of the three that wasn't grey. */
+.stat-note-accent { color: var(--muted); }
 
-/* ── One accent per card ─────────────────────────────────────────────────
-   Four white boxes with one shared blue top edge read as a single object
-   repeated four times. Each card now takes a colour from the SAME five the
-   Sankey and the charts use (SANKEY_NODE_COLORS / PALETTE in dashboard.js),
-   chosen by what the number IS rather than decoratively:
-     final demand -> carrier amber   emissions -> losses red
-     clean share  -> source green    imported fuel -> technology blue
-   Colour lands on the top edge and a faint background wash. It deliberately
-   does NOT land on the caption or the figure: at 11px on white the lime
-   measures 2.2:1 and the amber worse, so a coloured caption would have
-   traded a real accessibility property for decoration. Measured on the washed
-   backgrounds instead — --muted holds 5.4:1 or better on all four. */
-.stat-card { border-top: 3px solid var(--stat-accent, var(--line)); }
-.stat-demand   { --stat-accent: #F4C56C; background: #FFFCF5; }
-/* .stat-emissions went with the emissions card (see all_energy.py); the
-   losses red it used is still the GHG gauge's and the charts' own. */
-.stat-clean    { --stat-accent: #79CE3B; background: #FAFEF5; }
-.stat-imports  { --stat-accent: #6CABF4; background: #F7FBFF; }
+/* The per-card accents (amber demand, green clean share, blue imports, each
+   with a faint background wash) were removed when the row became one box:
+   colour was the thing making the three read as separate objects, and the
+   hairline rule between sections now does the separating on its own. The
+   .stat-demand / .stat-clean / .stat-imports classes stay in the markup as
+   hooks; nothing styles them. Figure and caption were always ink and grey,
+   so contrast is unchanged — --muted on white is 5.4:1 or better. */
 
-/* The headline pair: a bigger figure and more room, so the two read as one
-   pair rather than as the first two of four. (The top edge is per-card now,
-   above, rather than one shared blue.) */
+/* The headline section: a bigger figure and more room, so it reads as the
+   lead of the three rather than one of three equals. */
 .stat-card-lead { padding: 11px 18px 10px; }
 .stat-card-lead .stat-value { margin: 5px 0 3px; }
 
@@ -692,6 +794,15 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
      line at this width. */
   .stat-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .stat-card-lead { grid-column: 1 / -1; }
+  /* Nothing else to turn at this width: the blocks are separated by the tray
+     gap, which works the same in two rows as in one. */
+}
+
+/* The lift is decoration on a block that is not clickable — the colour and
+   shadow still say "live" without it. */
+@media (prefers-reduced-motion: reduce) {
+  .stat-card { transition: none; }
+  .stat-card:hover { transform: none; }
 }
 
 /* ── Panels (All Energy / Electricity duo charts) ──────────────────────── */
@@ -820,6 +931,24 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
    a legend far below the plot, which is what this was.
    The dark band is the page's existing vocabulary (masthead and footer are
    the same #3F4247), reused here to say "this section is its own thing". */
+/* Energy Flows shows the Sankey alone. dashboard.js puts `flows-only` on
+   <body> while that tab is active and takes it off on every other tab; the
+   Custom Pathways band (GHG 2047 gauge, lever columns, Insights) is hidden
+   for the duration. `display:none` rather than a layout change on purpose —
+   the deck's markup and every lever's state stay exactly as they were, so
+   switching away and back costs nothing and re-renders nothing. */
+body.flows-only .control-deck-h { display: none; }
+
+/* Held by fitUiScale() for the duration of its measuring loop, and removed
+   before it returns — never painted. Both rules below let an element absorb
+   leftover vertical space, which is exactly what makes the page always report
+   the window's own height and gives the fit nothing to converge on. Switching
+   them off for the measurement makes it read the content's NATURAL height,
+   which is the thing the scale is supposed to fit. */
+body.measuring-fit .control-deck-h { flex: 0 0 auto; }
+body.measuring-fit .lever-grid { flex: 0 0 auto; }
+body.measuring-fit .site-footer { margin-top: 0; }
+
 .flows-strip {
   display: flex; align-items: center; justify-content: space-between; gap: 18px 24px;
   flex-wrap: wrap;
@@ -848,7 +977,14 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
    off the viewport, not a magic number: renderSankey() lays out to the
    measured height and re-renders on resize, so there is nothing to keep in
    sync here. */
-#sankeySvg { width: 100%; height: clamp(400px, calc((100vh / var(--ui-scale)) - 300px), 820px); display: block; position: relative; }
+/* A FALLBACK only. This was the real sizing — a clamp subtracting a guess at
+   the page chrome from 100vh — and a guess is what put a scrollbar on the tab:
+   any change to the masthead, tab row or control strip made it wrong, and it
+   had no way to know the Custom Pathways band is hidden here. renderSankey()
+   calls sizeSankeyToViewport(), which measures the gap between this element
+   and the footer and writes the answer as an inline height that overrides this
+   rule. The clamp stays for the moment before the first render. */
+#sankeySvg { width: 100%; height: clamp(320px, calc((100vh / var(--ui-scale)) - 220px), 900px); display: block; position: relative; }
 /* ── Sankey flow tracing ─────────────────────────────────────────────────
    Hovering a node traces its whole chain (see renderSankey's trace()): the
    links on that route get .is-traced, everything else .is-dimmed, and a dashed
@@ -919,7 +1055,16 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
    its first — it just needs to bleed sideways and sit flush at the bottom. */
 .site-footer {
   flex: none;
-  margin: 6px calc(-1 * var(--page-x)) 0;
+  /* margin-top:auto, not the 6px it used to be. .page is a min-height:100vh
+     flex column, but nothing in it grows, so on any tab whose content is
+     shorter than the window the column simply ended early and the footer sat
+     wherever the content stopped — most visibly on Energy Flows, which hides
+     the Custom Pathways band entirely and left the footer stranded mid-screen
+     with white below it. `auto` absorbs the leftover space, so the footer is
+     on the bottom edge of the window when content is short and directly after
+     the content when it is long. (The old 6px gap goes with it; against a
+     full-bleed dark band it was not doing visible work.) */
+  margin: auto calc(-1 * var(--page-x)) 0;
   padding: 6px var(--page-x);
   background: #3F4247;
   color: #C3C7CC;
@@ -940,8 +1085,17 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
    left a dead gap of page background between the charts and this band —
    exactly the gap that prompted this fix. It now just sits directly under
    whatever's above it, like every other stacked section on the page. */
+/* `flex: 1 0 auto`, not `0 0 auto`: the deck is the last block before the
+   footer, and with the footer on `margin-top: auto` any space the fit left
+   over showed as a band of page ground between the two. The deck absorbs it
+   now — it grows past its content height, its own background reaches the
+   footer, and the room goes to the levers (.lever-grid grows in turn, below).
+   It never shrinks (`0` basis-shrink), so a deck taller than the window still
+   pushes the page rather than compressing its own rows.
+   fitUiScale() measures with this growth suppressed — see body.measuring-fit
+   further down, and the note in fitUiScale itself. */
 .control-deck-h {
-  flex: 0 0 auto; background: var(--deck-bg); border: 0; border-radius: 0; box-shadow: none;
+  flex: 1 0 auto; background: var(--deck-bg); border: 0; border-radius: 0; box-shadow: none;
   color: var(--deck-ink); overflow: visible;
   display: flex; flex-direction: column; position: relative;
   margin: 16px calc(-1 * var(--page-x)) 0;
@@ -957,9 +1111,10 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
   display: flex; align-items: center; gap: 12px;
   margin: -12px calc(-1 * var(--page-x)) 10px;
   padding: 7px var(--page-x) 8px;
-  /* Dark navy box, light green meter — see --gauge-box for the measurements
-     that drove going dark. Labels are LIGHT on it now (12.91:1); the dark ink
-     they used to carry was correct for the old light-blue box.
+  /* Dark navy box, amber meter — see --gauge-box for the measurements that
+     drove going dark, and for why the meter is amber rather than the lime it
+     started as. Labels are LIGHT on it now (12.91:1); the dark ink they used
+     to carry was correct for the old light-blue box.
      Bordered in the tab rule's own denim, which ties the page's two blue
      rules together and gives the band a real edge. On the dark box that
      border now reads 7.56:1 (it was 1.71:1 on the light one), so the edge is
@@ -1014,9 +1169,11 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
 /* TWO colours, because the readout lands on two different grounds and the box
    is dark now: outside the fill it sits on the denim track and takes the same
    light ink as the labels (8.51:1); tucked inside the fill it sits on the
-   light green meter and has to flip to dark (9.62:1). It was dark in both
+   amber meter and has to flip to dark (11.73:1 — it was 9.62:1 while the meter
+   was lime, so the amber improved this pair too). It was dark in BOTH
    positions while the box was light blue, which was right then and would be
-   invisible on the track now. */
+   invisible on the track now. This pair is why a dark red meter is not an
+   option here — see --gauge-meter. */
 .cdh-emissions-value.is-inside {
   transform: translate(calc(-100% - 9px), -50%);
   color: #101114;
@@ -1048,7 +1205,11 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
    node next to the clicked column (chevron.closest('.lg-col').after(rail))
    and the layout still reflows correctly. */
 .lever-grid {
-  flex: 0 0 auto; display: flex;
+  /* Grows with the deck (above), so the extra height lands on the levers
+     rather than as dead padding under them. With align-items:stretch the
+     columns take the new height too, and .lg-col spreads its own rows into
+     it — see the justify-content there. */
+  flex: 1 0 auto; display: flex;
   /* stretch, so every column is the tallest column's height and the navy
      rules between them are equal full-height lines (see .lg-col::before).
      40px of gap, up from 26: the rule sits in the middle of it, and 13px of
@@ -1092,7 +1253,12 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
    they grow past 353 when the rail is shut and fall back to it when the rail
    takes its 285. 353 stays the basis (and the floor the rail's arithmetic is
    built on) rather than becoming a fixed size. */
-.lg-col { display: flex; flex-direction: column; gap: 9px; min-width: 0; flex: 1 1 353px; position: relative; }
+/* space-between, so a column that is shorter than the row distributes the
+   slack between its groups instead of packing to the top and leaving a block
+   of empty deck beneath. `gap: 9px` stays the MINIMUM — space-between only
+   ever adds to it — so nothing gets tighter than it was, and a full column
+   lays out exactly as before because there is no slack to distribute. */
+.lg-col { display: flex; flex-direction: column; justify-content: space-between; gap: 9px; min-width: 0; flex: 1 1 353px; position: relative; }
 
 /* ── Navy rule between sections ──────────────────────────────────────────
    Drawn as an absolutely-positioned ::before sitting in the gap, NOT as a

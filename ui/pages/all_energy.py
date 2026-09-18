@@ -24,15 +24,15 @@ def render():
     return """
     <div class="view active" id="view-all-energy">
     <div class="stat-row">
-      <!-- Each card carries its own accent class. The four used to be white
-           boxes with one shared blue top edge, so the row read as one object
-           repeated — the accent now says what KIND of number each is, on the
-           same five colours the Sankey and the charts use: demand is the
-           carrier/energy amber, emissions the losses red, clean share the
-           source green, imports the technology blue. The colour is in the top
-           edge and a faint background wash only; the figure and the caption
-           stay ink and grey, which is what keeps them readable (a lime or
-           amber caption at 11px does not clear 4.5:1 on white). -->
+      <!-- One grey tray (.stat-row) holding three white blocks. These were
+           three separate cards each with its own accent colour and background
+           wash (amber demand, green clean share, blue imports) — three
+           readings of one scenario that looked like three unrelated widgets.
+           The tray groups them; the gap and the tone step separate them, so
+           there is no per-block colour and no divider. Each block lifts
+           slightly on hover with its figure going accent blue. See the
+           .stat-row block in dashboard.css. The .stat-demand / .stat-clean /
+           .stat-imports classes are kept as hooks but style nothing. -->
       <div class="stat-card stat-card-lead stat-demand">
         <div class="stat-label">Final Demand 2047</div>
         <div class="stat-value" id="stat-demand-value">–</div>
