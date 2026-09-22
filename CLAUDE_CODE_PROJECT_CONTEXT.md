@@ -4896,7 +4896,7 @@ Implementation notes that matter for anyone touching it:
 
 ---
 
-## Session Notes (2026-09-22, cont'd) — Total Supply replaced Clean Share on the KPI row; the headline numbers verified against Excel itself (engine is faithful; two *definitional* gaps found); Custom Pathways darkened; **and the app was dockerized, load-tested to 30 concurrent users, and two real bugs found by measurement**
+## Session Notes (2026-09-22, cont'd) — Total Supply replaced Clean Share on the KPI row; the headline numbers verified against Excel itself (engine is faithful; two *definitional* gaps found); Custom Pathways darkened; the Electricity charts' Mtoe/TWh mislabel fixed (and a reported per-capita "bug" shown to be correct as-is); **and the app was dockerized, load-tested to 30 concurrent users, and two real bugs found by measurement**
 
 Continues the 2026-09-22 section above. The engine and `ui/outputs.py` are still untouched — **no model number moved** — but this session did *verify* the numbers against the workbook for the first time, and that section is the one to read if you ever doubt a figure.
 
@@ -5011,6 +5011,38 @@ Fix, in `wsgi.py`: **resolve the four presets at import**, which gunicorn runs o
 The baked frontier covers presets **plus one lever move**. The second lever steps off it. **Scaling does not fix the 767 ms** — more workers/containers raise throughput and shorten queues, but one evaluation of the workbook costs what it costs. Only more pre-computation (2-lever space is ~20k states, ~4 h) or a faster evaluator would move it.
 
 **`tools/loadtest.py`** — stdlib only, runs against localhost or a deployed URL. `--users N --seconds S --mix warm|cold|mixed`, reports p50/p95/p99 and counts 429s separately. `warm` = presets and single-lever nudges (all cache hits, the realistic demo); `cold` = random 51-lever vectors (all misses, the deliberate breaking-point test — expect throughput to flatline near 1/0.75s and latency to climb linearly, which is `MODEL_LOCK` working, not a fault).
+
+### 5. Chart unit audit — one real mislabel fixed, one reported "bug" that was not one
+
+Both raised by the user after the Docker work; both checked against the workbook before touching anything, which is why one was changed and the other was not.
+
+**FIXED — the Electricity tab's two charts were labelled Mtoe but are in TWh.**
+
+`applyResult()` built `duoOpts = { unit: "Mtoe", ... }` for the All Energy pair, and the Electricity pair spread it to inherit its *layout* (right-hand legend, Total first) — silently inheriting its *unit* as well. That value feeds two places, so both the y-axis title (`dashboard.js:821`) and every hover tooltip (`:807`) read Mtoe.
+
+**Label-only: the data was always correct.** Three independent confirmations:
+- `compute_electricity_supply_chart()` divides by `GWH_TO_TWH` (`outputs.py:684`).
+- The demand series reads `'IESS V3 Results'` rows 55-63, which the workbook itself heads **`TWh`** (row 54) and derives via `/Unit.TWh`; the trade row is commented "already in TWh".
+- Magnitudes: both totals are ~5,500 at 2047. As Mtoe that would be ~470 — the figures never matched their own caption.
+
+Fix is `const elecOpts = { ...duoOpts, unit: "TWh" }`. Note `ui/pages/electricity.py`'s panel headers *already* said TWh, so the page header and the chart axis had been contradicting each other — which is what made it visible at all.
+
+Swept the other tabs while there: every remaining chart passes its unit explicitly (`GW`, `Billion INR`, `Hectares`, `Litres`, `Mt CO₂e`, `%`, `MJ/INR`, `toe/person`), and the only two `panel-unit` headers left are the All Energy pair, correctly Mtoe. No other mismatch exists.
+
+**Latent trap worth knowing**: `renderStackedChart` opens with `const unit = opts.unit || "Mtoe"` (`dashboard.js:766`). A caller that forgets a unit is therefore labelled Mtoe rather than failing loudly — that default is what made this bug possible. Changing it to `""` would make the next omission obvious instead of wrong; flagged, not done.
+
+**NOT CHANGED — "Per Capita GHG Emissions should be kgCO2e/person" is incorrect; it is tonnes.**
+
+Recorded here so a later session does not "fix" it into being wrong. The chart reads `'IESS V3 Results'` row 117, whose own unit cell says **`tCO2-eq.`**, and whose values are `1.89, 2.28, 2.60, 2.81, 3.04, 3.36` — India's real per-capita emissions, ~2 t/person today rising to ~3.4 by 2047. In kilograms those would be 1,890-3,360. The card subtitle (`indicators.py`) and the axis already agree on `tonne CO2e/person`.
+
+The likely source of the confusion is the chart on the adjacent sub-tab: the Indicators tab carries **two** emissions charts, and one of them genuinely is in kg —
+
+| Sub-tab | Chart | Unit | Workbook row |
+|---|---|---|---|
+| Emissions Intensity | Energy Emissions Intensity of GDP | **kg CO2e / 1000 INR** | 118 (`kg CO2-eq/1000 INR`) |
+| Per Capita | Per Capita GHG Emissions | **tonne CO2e/person** | 117 (`tCO2-eq.`) |
+
+If per-capita is ever genuinely wanted in kilograms, it needs the values multiplied by 1000 **as well as** the label changed. Relabelling alone would be a factor-of-1000 error in a government model.
 
 ### Verification status
 

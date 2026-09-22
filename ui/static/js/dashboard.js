@@ -1875,15 +1875,27 @@ function applyResult(data) {
   if (data.water_use_chart) {
     renderStackedChart("waterUseChart", data.water_use_chart, null, { unit: "Litres", compact: true, legendPosition: "right" });
   }
+  // The Electricity tab's pair reuses duoOpts for layout but NOT its unit:
+  // these two are in TWh, not Mtoe, and spreading duoOpts alone silently
+  // mislabelled both axes and every tooltip.
+  //
+  // The data was always right; only the label was wrong. outputs.py's
+  // compute_electricity_supply_chart divides by GWH_TO_TWH, and the demand
+  // series comes from 'IESS V3 Results' rows 55-63, which the workbook itself
+  // heads "TWh" (row 54) and derives via `/Unit.TWh`. Both read ~5,500 at
+  // 2047; as Mtoe that would have been ~470, so the figures never matched
+  // their own caption. electricity.py's panel headers already said TWh, which
+  // is what made the mismatch visible.
+  const elecOpts = { ...duoOpts, unit: "TWh" };
   if (data.electricity_demand_chart) {
     renderStackedChart("electricityDemandChart", data.electricity_demand_chart,
       data.changed && data.changed.electricity_demand_chart && data.changed.electricity_demand_chart.series,
-      { ...duoOpts, changedCardId: "card-elec-demand" });
+      { ...elecOpts, changedCardId: "card-elec-demand" });
   }
   if (data.electricity_supply_chart) {
     renderStackedChart("electricitySupplyChart", data.electricity_supply_chart,
       data.changed && data.changed.electricity_supply_chart && data.changed.electricity_supply_chart.series,
-      { ...duoOpts, changedCardId: "card-elec-supply" });
+      { ...elecOpts, changedCardId: "card-elec-supply" });
   }
 
   // Any chart created just now was sized by Chart.js, which measures its
