@@ -3,11 +3,19 @@ the energy system get, and what does it cost the atmosphere".
 
 The four KPI cards are NOT four equal cards. Two of them are the answer to
 that question (Final Demand 2047, Emissions 2047) and two are supporting
-detail (Clean Share, Imported Fuel), so the layout says so: the headline pair
-runs at roughly double width with display-sized figures, the supporting pair
-is a narrow stack beside them at caption size. An equal four-up grid gave the
-same visual weight to the number the whole model exists to project and to a
-percentage derived from it.
+detail (Total Supply 2047, Imported Fuel), so the layout says so: the headline
+pair runs at roughly double width with display-sized figures, the supporting
+pair is a narrow stack beside them at caption size. An equal four-up grid gave
+the same visual weight to the number the whole model exists to project and to
+a percentage derived from it.
+
+Total Supply replaced Clean Share in the supporting stack. It pairs with Final
+Demand — the two halves of the same balance, in the same unit, so the reader
+can see the gap between what the system needs and what it draws on. Clean
+Share was a percentage derived from supply; the quantity it derives from says
+more, and the clean/renewable story is already carried by the Energy Supply
+chart's own source bands. `kpis.clean_share` is still computed and still
+shipped on every response (outputs.py) — only this card stopped showing it.
 
 The two headline charts are not twins either. Energy Supply carries ten legend
 entries (nine source groups plus Total) against Energy Demand's eight, and one
@@ -31,7 +39,7 @@ def render():
            The tray groups them; the gap and the tone step separate them, so
            there is no per-block colour and no divider. Each block lifts
            slightly on hover with its figure going accent blue. See the
-           .stat-row block in dashboard.css. The .stat-demand / .stat-clean /
+           .stat-row block in dashboard.css. The .stat-demand / .stat-supply /
            .stat-imports classes are kept as hooks but style nothing. -->
       <div class="stat-card stat-card-lead stat-demand">
         <div class="stat-label">Final Demand 2047</div>
@@ -46,11 +54,11 @@ def render():
            and the Insights panel still reports emissions before -> after,
            which is the one thing neither the card nor the gauge shows. -->
       <div class="stat-stack">
-        <div class="stat-card stat-card-min stat-clean">
-          <div class="stat-label">Clean Share</div>
+        <div class="stat-card stat-card-min stat-supply">
+          <div class="stat-label">Total Supply 2047</div>
           <div class="stat-min-figure">
-            <span class="stat-value" id="stat-clean-value">–</span>
-            <span class="stat-note stat-note-accent">renewables, hydro, nuclear</span>
+            <span class="stat-value" id="stat-supply-value">–</span>
+            <span class="stat-note">primary energy</span>
           </div>
         </div>
         <div class="stat-card stat-card-min stat-imports">

@@ -112,8 +112,10 @@ html, body { min-height: 100%; margin: 0; }
      quantity deserves, and it measures strictly better than the lime on both
      pairs that matter: 6.18:1 against the track (was 5.07) and 11.73:1 for the
      readout that rides inside the fill (was 9.62). Note the lime is still
-     correct elsewhere and was NOT changed — .stat-clean (clean share) and
-     PALETTE.lime are "more is better" quantities; this one is not.
+     correct elsewhere and was NOT changed — PALETTE.lime marks "more is
+     better" quantities; this one is not. (The other example named here used
+     to be .stat-clean, the Clean Share card, which is now Total Supply 2047
+     and carries no accent either way.)
 
      True red was measured and rejected. The chart/Sankey red (#DD4153) gives
      only 2.35:1 against the track — the filled bar stops being distinguishable
@@ -194,7 +196,17 @@ html, body { min-height: 100%; margin: 0; }
      deck that are genuinely raised: the Predefined-scenarios buttons and the
      sub-lever flyout rail. White on beige (1.20:1) is what makes those two
      read as lifted. */
-  --deck-bg: #EDEDED;
+  /* #EDEDED until the band was judged too close to the white page to read as
+     a separate region. #E4E4E4 takes band-vs-page from 1.17:1 to 1.27:1 —
+     still a quiet neutral, but the deck now has an edge without needing a
+     border to draw one.
+     The same step also helps the two things in here that are meant to look
+     RAISED (the scenario buttons and the flyout rail, both --deck-panel
+     white): their lift off the band rises 1.17 -> 1.27 by the same arithmetic.
+     Anything painted ON the band had to move with it or lose the same 0.10 —
+     see .lg-lever-track, which was re-solved to hold its original ratio.
+     Body ink is unaffected at this range (15.5:1 -> 14.3:1). */
+  --deck-bg: #E4E4E4;
   --deck-panel: #FFFFFF;
   --deck-line: #D4D4D4;
   --deck-row-line: rgba(16,17,20,.10);
@@ -617,9 +629,17 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
    fine at 1366x768, since whether it converges depends on the numbers. Any
    cap here has to be a plain px value, independent of both the scale and the
    viewport. */
+/* Widened from 300/340 once the panel started carrying two lists instead of
+   three or four short lines. At the old width both columns' content wrapped
+   on almost every line — a lever name like "Hydrogen Production for Telecom
+   and Transport" took three — which made the panel tall, and height here is
+   not free: fitUiScale() derives --ui-scale FROM content height, so a tall
+   panel shrinks the whole page. Spending the deck's unused horizontal room
+   buys the height back. The deck had it to spare: the lever columns are their
+   own width and cluster left (see the history above). */
 .lg-insights-col {
   position: relative;
-  flex: 0 1 300px; min-width: 0; max-width: 340px;
+  flex: 0 1 620px; min-width: 0; max-width: 680px;
   display: flex; flex-direction: column;
   padding-left: 20px;
 }
@@ -634,7 +654,16 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
 }
 .lg-insights-col[hidden] { display: none; }
 
-.rail-insights { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+/* flex-basis 0, not auto. With `auto` the item's base size is its CONTENT
+   height, so the panel's content propagated up into the deck's height — and
+   the deck's height is what fitUiScale() scales the whole page against. That
+   made the page re-zoom every time the panel's line count changed, i.e. on
+   every lever move: raise four levers, get four more lines, and the entire UI
+   quietly shrank to keep the footer on the window's bottom edge. Nothing was
+   wrong with the fit; the panel simply should never have been one of its
+   inputs. A basis of 0 takes the content out of the measurement, leaving the
+   column to stretch to whatever height the LEVER columns set. */
+.rail-insights { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
 /* Header: tinted icon tile + label, over a full-width rule. The tile is what
    gives the card a focal point now that the whole panel isn't coloured. */
 .rail-insights-head {
@@ -647,14 +676,58 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
   width: 24px; height: 24px; flex: none; padding: 5px; border-radius: 7px;
   background: rgba(41,105,154,.10); color: var(--accent);
 }
+/* The two lists sit side by side: "what you changed" left, "what it did"
+   right. auto-fit rather than a fixed `1fr 1fr` so the pair collapses back to
+   a single column on its own once the rail is too narrow to give each 250px —
+   no media query, and no breakpoint tied to viewport width, which would be
+   the wrong variable anyway (what matters is how wide the RAIL ended up after
+   the lever columns took theirs). */
 .rail-insights-body {
-  flex: 1 1 auto; min-height: 0;
+  /* Same flex-basis-0 reasoning as .rail-insights above: the list's own height
+     must not reach the deck. It takes the height the column was given and
+     scrolls anything past it, so a 1-lever pathway and a 30-lever one occupy
+     exactly the same box and the page never re-zooms between them.
+     max-height is a plain px value — deliberately not vh and not derived from
+     --ui-scale, either of which would close the feedback loop the block above
+     .lg-insights-col warns about. min-height keeps it usable if the lever
+     columns are ever short enough to squeeze it. */
+  flex: 1 1 0; min-height: 180px; max-height: 420px; overflow-y: auto;
   font: var(--t-body); color: var(--ink);
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 0 26px; align-content: start;
 }
-/* .insights-group-label (a small-caps chip ahead of each group) was removed
-   with the lever-change list it separated from the KPI effects — the panel
-   shows one list now, directly under its own "Insights" header, so there is
-   nothing left for a second heading to divide. */
+/* The idle state is running prose, not two parallel lists — it spans. */
+.insights-section-wide { grid-column: 1 / -1; }
+/* Each column's own last line drops its divider, so the two columns don't end
+   on a stray rule at different heights. */
+.insights-section > .insights-line:last-child { border-bottom: 0; padding-bottom: 0; }
+/* .insights-group-label is back, along with the lever-change list it used to
+   separate from the KPI effects. It was removed when the panel was reduced to
+   a single list, on the reasoning that one list under a panel header needs no
+   second heading — correct at the time. The panel now runs two lists that say
+   different KINDS of thing, choices then consequences, and the reader needs to
+   know which one they are looking at: a lever line and a KPI line are both
+   "name, badge, figure" and are otherwise hard to tell apart at a glance.
+   Deliberately quiet — a label, not a heading. It sits inside a panel that
+   already has a real header, so matching that weight would give the panel two
+   competing titles. First one has no top margin: it would push the whole list
+   down from the header for no reason. */
+.insights-group-label {
+  font: var(--t-caption); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted); margin: 14px 0 2px;
+}
+.insights-group-label:first-child { margin-top: 0; }
+/* The workbook's own ambition note, quoted under the lever line it belongs to
+   (Control!H:K — the same prose the slider tooltip shows). No divider and no
+   badge: it is an annotation on the line above, not a separate finding, and
+   the indent plus the rule on the left is what ties it there. Sized down one
+   step because it is two to three sentences of source material sitting inside
+   a panel of one-line summaries. */
+.insights-note {
+  font: var(--t-label); color: var(--muted);
+  margin: -2px 0 9px 28px; padding-left: 9px;
+  border-left: 2px solid var(--line);
+}
 /* Each line gets its own divider (padding+border, not a bottom margin),
    and the direction badge is a small filled chip instead of a bare glyph —
    reusing the same ramp colors as the effort-level chips elsewhere
@@ -768,9 +841,12 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
    with a faint background wash) were removed when the row became one box:
    colour was the thing making the three read as separate objects, and the
    hairline rule between sections now does the separating on its own. The
-   .stat-demand / .stat-clean / .stat-imports classes stay in the markup as
-   hooks; nothing styles them. Figure and caption were always ink and grey,
-   so contrast is unchanged — --muted on white is 5.4:1 or better. */
+   .stat-demand / .stat-supply / .stat-imports classes stay in the markup as
+   hooks; nothing styles them. (.stat-supply was .stat-clean until the Clean
+   Share card became Total Supply 2047 — the hook was renamed with it, since
+   a hook named for a card that is gone is worse than no hook.) Figure and
+   caption were always ink and grey, so contrast is unchanged — --muted on
+   white is 5.4:1 or better. */
 
 /* The headline section: a bigger figure and more room, so it reads as the
    lead of the three rather than one of three equals. */
@@ -992,13 +1068,25 @@ body.measuring-fit .site-footer { margin-top: 0; }
    The opacity values carry !important because the base stroke-opacity is set
    as a presentation ATTRIBUTE by d3, and an attribute would otherwise win
    over a class here. */
-.sankey-link { transition: stroke-opacity .18s ease; }
+.sankey-link { transition: stroke-opacity .18s ease; cursor: pointer; }
 .sankey-link.is-traced { stroke-opacity: .68 !important; }
 .sankey-link.is-dimmed { stroke-opacity: .07 !important; }
+/* Clicking holds the current selection (renderSankey's pinned state). A pinned
+   route is the traced route carried a step further — fully opaque rather than
+   .68 — so "held" reads as more committed than "hovered" without introducing
+   a second colour or an outline the diagram would have to explain. Pinning
+   dims the rest harder than hover does for the same reason: a state you chose
+   to sit in can afford to isolate its subject more than one you are merely
+   passing through. */
+.sankey-link.is-pinned { stroke-opacity: .92 !important; }
+.sankey-svg-pinned .sankey-link.is-dimmed { stroke-opacity: .04 !important; }
 
 .sankey-node, .sankey-label { transition: opacity .18s ease; }
 .sankey-node.is-dimmed, .sankey-label.is-dimmed { opacity: .22; }
-.sankey-node { cursor: crosshair; }
+/* pointer, not crosshair: these are clickable now, and crosshair reads as
+   "inspect a coordinate" rather than "this does something". */
+.sankey-node { cursor: pointer; }
+.sankey-node.is-pinned { stroke: var(--ink); stroke-width: 1.5px; paint-order: stroke; }
 
 /* Entry reveal. `forwards` is the load-bearing part: it holds
    stroke-dashoffset at 0 once the animation ends, so a link's final state is
@@ -1397,11 +1485,17 @@ body.measuring-fit .site-footer { margin-top: 0; }
 .lg-lever { position: relative; width: 100%; height: 28px; --lg-lever-color: var(--lvl-1); }
 .lg-lever-track {
   position: absolute; left: 0; right: 0; top: 50%; height: 7px; transform: translateY(-50%);
-  /* A touch darker than --deck-line. The track used to sit on a white box
-     inside the band; with the boxes gone it sits on the band itself
-     (#EDEDED), where a #D4D4D4 track was too faint to read as a track. This
-     value holds up both there and on white in the flyout rail. */
-  border-radius: 999px; background: #C9C9C9;
+  /* The track used to sit on a white box inside the band; with the boxes gone
+     it sits on the band itself, where a #D4D4D4 track (1.27:1) was too faint
+     to read as a track — #C9C9C9 on the old #EDEDED gave 1.41:1 and that is
+     the legibility this control was tuned to.
+     When --deck-bg went #EDEDED -> #E4E4E4 the track had to follow, or it
+     would have given back exactly the contrast the band just gained: on the
+     new ground #C9C9C9 measures 1.30:1, which is nearly the #D4D4D4 that was
+     rejected in the first place. #C1C1C1 restores the ratio to 1.42:1. Solve
+     it again the same way if the band ever moves.
+     Still holds up on white in the flyout rail (1.75:1, was 1.59:1). */
+  border-radius: 999px; background: #C1C1C1;
   box-shadow: inset 0 0 0 1px rgba(16,17,20,.05);
 }
 .lg-lever-fill {

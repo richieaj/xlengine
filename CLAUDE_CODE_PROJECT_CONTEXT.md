@@ -4759,3 +4759,268 @@ What was actually checked:
 - The 222 modified golden fixtures, by key-by-key comparison against `HEAD` (see §10) — the only check here that touches model numbers.
 
 **The app itself was not run in this session.** Every visual change was confirmed by the user against their own running instance, iteration by iteration, and several were corrected on that basis (the KPI row twice, the `--ui-scale` collapse, the Sankey height). Anyone picking this up should restart the server — the Python templates are substituted at request time, so a running server will not show a `tabs.py` or `base.py` change on a refresh alone — *and* hard-refresh, since the static files are not served `no-store`.
+
+---
+
+## Session Notes (2026-09-22) — Insights panel turned into a narrative; a page-rescale bug that this session introduced and then fixed; Sankey click-to-pin. **All UI-layer — no engine and no `ui/outputs.py` compute change, so no model number moved.**
+
+Three pieces of work, in the order they were asked for. Docker was raised first, planned, and then set aside unimplemented when the user redirected to the Insights panel — see §4.
+
+Everything here is in two files: `ui/static/js/dashboard.js` and `ui/static/css/dashboard.css`.
+
+### 1. The Insights panel now tells a story instead of printing four percentages
+
+**The complaint.** With levers moved, the panel printed exactly four lines — `Final demand 2,202 Mtoe → 2,059 Mtoe (−6.5%)` and three more — plus `Clean share unchanged` for anything that had not moved. No verbs, no cause, nothing that reads as a sentence. The user's reference was the lever tooltip, which is authored prose ("*Ambition level 3: Two-thirds of existing buildings are given a complete retrofit…*"), and the ask was for the panel to read like that when several levers, or a whole scenario, move together.
+
+**What made it cheap.** Two things were already on the wire and unused:
+
+- **`lever_changes`** — `{id, name, from, to}` per moved lever, computed by `app.py:78-90` and sent on every `/recalc`. `dashboard.js` received it and deliberately threw it away; the reasoning was recorded in-file (the Custom Pathways deck already shows every handle's position, so restating it is redundant, and the lever list pushed the KPI effects below the fold). That reasoning holds for the *position* and not for what the position *means*.
+- **The workbook's own ambition notes** — `Control!H:K`, read by `levers.py:48-58`, already in the page as a `data-descs` JSON attribute on every flyout row. 44 of the 51 levers have notes; the panel can quote them with no endpoint, no round trip and no second copy of the text to drift.
+
+So "you did X, and Y happened" needed **zero** new computation.
+
+**What was explicitly NOT built.** Attribution — "emissions fell *because of* Solar PV". Isolating one lever's contribution means re-running the model with that lever reverted and the others left alone: one extra evaluation per moved lever, which the response does not carry. An early claim in this session that `tools/precompute_pathways.py` made this nearly free was **wrong and was corrected**: it warms single-lever deviations from the four presets, so a two-lever deviation — the multi-lever case that actually matters — is not pre-warmed. The panel orders the two lists adjacently and lets the reader draw the link; stating it would be inventing it.
+
+The user chose **templated/deterministic** over an LLM, with the depth limited to "what you changed + what happened" (no tradeoff-hunting across the ~20 chart series, no attribution). An LLM pass is expected later, once the Government of India one-pager lands — the structure was left split into *what changed* / *what it did* so that swap replaces the sentence assembly while keeping the numbers.
+
+**New functions in `dashboard.js`**, all near the old `renderInsights`:
+
+| Function | Role |
+|---|---|
+| `addInsightsSection(body, label, wide)` | One titled column; returns the element lines go into. Needed so the two lists are real containers, not sibling-flat markup — flat markup can only ever stack, never sit side by side. |
+| `addInsightsNote(body, text)` | The workbook's quoted prose. `textContent`, never `innerHTML`. |
+| `leverDescFor(id, level)` | Reads `data-descs` off the flyout row for a lever id. Exact-match selector on `[data-lever-ids="lvNN"]` is correct precisely because a flyout row carries exactly one id; a bundled deck row lists several comma-joined and carries no descs. Id is regex-validated (`/^lv\d+$/`) before it reaches the selector. |
+| `kpiClause(key, d)` | One KPI's move as a clause — "2047 emissions fall 12%". |
+| `kpiMagnitude(key, d)` | Ranking only, for picking the headline. Points for %-unit KPIs, relative percent otherwise — deliberately not a strictly comparable scale, and commented as such. |
+| `pointsMoved(d, meta)` | Shared by the headline and the figure line so the two cannot disagree. |
+| `renderLeverStory(body, leverChanges)` | The "what you changed" column. |
+| `renderOutcomeHeadline(body, kpiChanges)` | The lead sentence. |
+
+**Three budgets control verbosity** (constants, one line each): quote the workbook prose for **≤2** levers (`STORY_PROSE_MAX`), one line per lever up to **5** (`STORY_NAMES_MAX`), a single counted line past that — "13 levers moved — 8 raised, 5 lowered." plus the first three names and "and N more". This is the answer to the fold problem that got the lever list removed in the first place: budget rather than omission.
+
+**`KPI_LABELS` gained two fields.** `story` is the KPI named as it would be *said* ("2047 emissions", "the clean share of supply") because lower-casing `label` on the fly produced "emissions (2047) falls 12%" — a caption with a verb stuck on it. `plural: true` on `emissions_2047_total` alone fixes "2047 emissions **falls** 17.5%".
+
+### 2. A real correctness fix: percentage KPIs were overstating their own movement
+
+`kpi_deltas` sends `pct` as a *relative* change. For a KPI that is itself a percentage, that is a percent **of** a percent. Clean share going 27.9% → 31.3% arrived as `pct: 12.2`, and the panel printed **"+12.2%"** beside two figures the reader can see are 3.4 apart.
+
+`import_dependence` and `clean_share` now report **points** — `+3.4 pts` — in both the headline clause and the figure line. Everything else still reports relative percent. Singular/plural handled (`−1 pt`).
+
+This changes displayed text only; `ui/outputs.py:838-869` was not touched and no stored number moved.
+
+### 3. "Final demand unchanged" removed
+
+Unmoved KPIs are now omitted rather than stated. This reverses a documented decision (an unmoved card was stated explicitly because "emissions held still while demand fell" is a real result and silently dropping it reads as an oversight). That holds for a **table**, which promises one row per KPI; it does not hold for a summary, and the line spent a row of a narrow panel on a non-event. The headline sentence names what did move, so absence now means what the reader assumes.
+
+### 4. Docker — planned in this session, still NOT implemented
+
+The user opened the session asking whether the project could be dockerized, then redirected to the Insights panel before anything was built. **No Dockerfile, `requirements.txt`, `.dockerignore`, `wsgi.py` or `compose.yaml` exists.** A plan was written to `C:\Users\richie\.claude\plans\so-what-are-you-virtual-phoenix.md` (outside the repo).
+
+It is narrower than the 2026-09-17 PROPOSED section above because the user's stated goal here was **dev testing**, not deployment — bind-mount the source for live edit, Flask's own server with a polling reloader, no gunicorn. Findings worth keeping regardless of which plan is executed:
+
+- A **portability sweep found no Linux blockers**: no `winreg`, no COM/`xlwings`, no Excel dependency (the workbook is parsed as raw OOXML), no Windows path literals in the app, and no case-sensitivity mismatches in static references or `ui/pages` imports. The only absolute paths are stale `D:/2047-old/...` defaults in `xlcompiler/run_full.py:9` and `xlcompiler/count_flows.py:7`, neither of which the app imports.
+- **`ui/app.py:43`'s `mimetypes.add_type("font/woff2", ".woff2")` is needed on Linux too.** The in-file comment explains it as a Windows-registry workaround; slim Docker images have no `/etc/mime.types` and produce the same wrong `application/octet-stream`. Do not remove it when containerizing.
+- `app.run(debug=False, port=5051)` binds `127.0.0.1`, which inside a container means the container's own loopback — unreachable from the host, with no error to explain it. Any container entry point must set `host="0.0.0.0"`.
+- Docker Desktop on Windows does not propagate filesystem events into the Linux VM, so Flask's default watchdog reloader misses edits on a bind mount. `reloader_type="stat"` (polling) is required.
+- `start_cache_janitor()` is called only from the `__main__` guard (deliberately — CLI tools import `app.py` for its helpers and must not trigger deletions). Any WSGI entry point must call it explicitly or the cache is never pruned.
+
+### 5. The page-rescale bug — introduced by §1, then fixed
+
+**This is the important entry in this section.** After §1 shipped, the user reported the whole page resizing whenever panel content grew.
+
+`fitUiScale()` zooms the entire page (`--ui-scale`, `zoom` on body) so the footer's bottom edge meets the window bottom. Insights is a Custom Pathways column, so **its height is part of the deck's height and therefore part of what the fit measures** — a coupling that was already documented at `dashboard.js:1888-1896` and was harmless while the panel was three or four short lines. Making the panel's height vary with the number of moved levers turned a dormant coupling into a visible defect: move four levers, get four more lines, and the entire UI quietly shrank.
+
+**Fix: `flex-basis: 0` on `.rail-insights` and `.rail-insights-body`** (both were `flex: 1 1 auto`). With `auto`, a flex item's base size is its *content* height, which is how the line count propagated up into the deck. With `0` it is not an input at all — the column stretches to whatever height the **lever** columns set, and the body scrolls anything past it.
+
+`.rail-insights-body` also gained `min-height: 180px; max-height: 420px; overflow-y: auto`. **The max-height is a plain px value on purpose** — not `vh`, not derived from `--ui-scale` — for the circular-dependency reason the block above `.lg-insights-col` already warns about at length.
+
+Measured in headless Chrome against a harness replicating the deck (fixed 520px stand-in lever column):
+
+```
+lines/col= 1  deck=491px  insightsBody=378px  scrolls=false  cols=2
+lines/col= 2  deck=491px  insightsBody=378px  scrolls=false  cols=2
+lines/col= 4  deck=491px  insightsBody=378px  scrolls=false  cols=2
+lines/col= 8  deck=491px  insightsBody=378px  scrolls=true   cols=2
+lines/col=16  deck=491px  insightsBody=378px  scrolls=true   cols=2
+lines/col=40  deck=491px  insightsBody=378px  scrolls=true   cols=2
+```
+
+Deck height constant from 1 line to 40, and at 1400/1100/900px windows. Panel content can no longer re-zoom the page.
+
+### 6. Insights laid out horizontally, two columns
+
+The rail went from `flex: 0 1 300px; max-width: 340px` to `620px`/`680px`, and `.rail-insights-body` became `display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr))` — *What you changed* left, *What it did* right.
+
+At 300px nearly every line wrapped (a name like "Hydrogen Production for Telecom and Transport" took three lines), which is what made the panel tall — and height is not free here, per §5. The deck had the horizontal room to spare: its lever columns are their own width and cluster left, which the history above `.lg-insights-col` already records.
+
+`auto-fit` rather than `1fr 1fr` so the pair collapses to one column on its own when the rail is squeezed — no media query, and no breakpoint tied to viewport width, which would be the wrong variable (what matters is what is left after the lever columns take theirs).
+
+Two supporting rules: `.insights-section-wide { grid-column: 1 / -1 }` for the idle "base state facts", which is running prose and should not be halved; and `.insights-section > .insights-line:last-child` drops its divider so the two columns do not end on a stray rule at different heights.
+
+**`.insights-group-label` was reinstated**, reversing its removal (it went with the lever list, on the correct reasoning that one list under a panel header needs no second heading). There are two lists again, in adjacent columns, and a lever line and a KPI line are both "name, badge, figure" — hard to tell apart at a glance without the label.
+
+### 7. Sankey: click to pin a flow
+
+Hovering answers "what is this?" but only while the pointer stays put — move toward a label to read it and the highlight is gone. Click now holds the selection.
+
+- **Click a band or node** → selection pins. A pinned node traces its whole transitive route, the same as hover (one test click lit 18 links / 16 nodes).
+- **While pinned** → hover no longer repaints, but the **tooltip still tracks the pointer**, so "how much, and where" stays answerable on any band. That is the point of the state.
+- **Click the same element, click empty background, or press Esc** → unpin.
+- **Click a *different* element** → re-pins to that one in a single click. This is a deliberate liberty with the literal ask ("click again anywhere to deselect"): requiring an unpin click before every new selection makes comparing two routes twice the work, and both background and same-element still deselect, so the pointer is never trapped.
+
+Implementation notes that matter for anyone touching it:
+
+- **`pinned` is local to `renderSankey`.** Every re-render (year button, recalc, resize) rebuilds the graph, so the node and link objects a stale selection referred to no longer exist. Scoping it here means a re-render drops the pin rather than leaving it pointing at detached data.
+- **The Esc listener is registered once at module level**, with `renderSankey` reassigning a module-level `sankeyUnpin` handle. Binding it inside `renderSankey` would stack one extra live listener per year-button click, each holding a dead graph.
+- `onClick` calls `event.stopPropagation()` so the element's own click does not also reach the svg's background-unpin handler.
+- CSS: `.sankey-link.is-pinned { stroke-opacity: .92 }` against hover's `.68`, and `.sankey-svg-pinned .sankey-link.is-dimmed { stroke-opacity: .04 }` against `.07` — a state you chose to sit in can isolate its subject harder than one you are passing through. `.sankey-node` cursor changed `crosshair` → `pointer`, since these do something now.
+
+### Verification status
+
+**Run against the live app on port 5051, not reasoned about:**
+
+- **Insights rendering** — the real functions were sliced out of `dashboard.js` and driven against real `/recalc` payloads under a stub DOM, for six cases: 1, 2, 3, 12 and 13 levers, mixed raise/lower, and a lever with no authored note. All correct; no crashes. The seven note-less levers are `lv45, lv47, lv51, lv59, lv60, lv61, lv62`.
+- **Four language bugs were caught this way and fixed** — "emissions *falls*", "(−1 *pts*)", the awkward "raised to level 4 from 2" (now "raised from level 2 to 4"), and a comma before "and" joining only two clauses. None would have been visible without running it.
+- **Layout stability** — the headless-Chrome table in §5.
+- **Sankey pinning** — a temporary same-origin probe in `ui/static/` drove real dispatched events against the live diagram (60 links) and asserted class counts at every transition: hover, pin, leave-while-pinned, hover-while-pinned (frozen), re-pin, unpin, background-click, Esc, and node-click. All correct. **The probe file was deleted afterwards** (`ui/static/_probe_sankey.html` — it should not exist; if it does, remove it).
+- `node --check` on `dashboard.js` and a brace-balance check on `dashboard.css` after every edit.
+
+**NOT verified:** how any of it *looks*. The two-column proportions, the 420px cap, and the pinned-state opacities are judgement calls confirmed only by the user against their own instance. **Hard-refresh is required** — one round of feedback this session was given against stale cached JS (the screenshot showed pre-fix wording), which wasted a cycle. Static files are not served `no-store`.
+
+**Nothing was committed or pushed.** The working tree carries §1-§3 and §5-§7 uncommitted.
+
+### Known issues found and deliberately not fixed
+
+- **Lever row 49, `Fuel Switching Choices – Iron and Steel`, has `max = 5`, but `levers.py:57` reads only columns H-K (levels 1-4).** `Control!L49` = "Increased use of Scrap" exists and is silently dropped, so the slider's top position shows no tooltip at all. `sidebar.py:165` iterates to `max_n`, so it asks for level 5 and finds nothing. One-column fix.
+- **A rounding artifact the narrative made more visible**: `Emissions (2047) 2.8 GtCO₂ → 2.8 GtCO₂ (+2.1%)`. `fmtKpi` uses one decimal below 100, so a real move can render as two identical figures beside a non-zero percentage. Fixable by showing two decimals below 10. Pre-existing; not introduced here.
+
+---
+
+## Session Notes (2026-09-22, cont'd) — Total Supply replaced Clean Share on the KPI row; the headline numbers verified against Excel itself (engine is faithful; two *definitional* gaps found); Custom Pathways darkened; **and the app was dockerized, load-tested to 30 concurrent users, and two real bugs found by measurement**
+
+Continues the 2026-09-22 section above. The engine and `ui/outputs.py` are still untouched — **no model number moved** — but this session did *verify* the numbers against the workbook for the first time, and that section is the one to read if you ever doubt a figure.
+
+### 1. `Clean Share` card → `Total Supply 2047`
+
+User's reasoning: Final Demand is on the row, so its counterpart belongs there too. `total_supply` was already computed, already in `SUMMARY_KPI_KEYS`, already diffed by `kpi_deltas()` — it had simply never been displayed. **No server change was needed.**
+
+- `ui/pages/all_energy.py` — the `.stat-card-min` block: label `Clean Share` → `Total Supply 2047`, id `stat-clean-value` → `stat-supply-value`, class `.stat-clean` → `.stat-supply`, note → "primary energy".
+- `dashboard.js` — `renderOverviewKpis()` writes `data.total_supply`; `CARD_KPI_KEYS` swaps `clean_share` → `total_supply`.
+- `cleanSharePct()` **deleted** — that card was its only caller. `kpis.clean_share` is still computed in `outputs.py`, still shipped on every response, still in `KPI_LABELS`; only the card stopped showing it, so restoring it is a one-line edit.
+- Two CSS comments naming `.stat-clean` updated rather than left to rot.
+
+**One mistake worth recording**: the first pass rounded supply to whole Mtoe with a comment claiming it matched Final Demand. A browser check showed Final Demand renders `2,201.98` — *unrounded* — so the "fix" produced `2,903` beside `2,201.98`, the exact inconsistency it claimed to prevent. Both now use the same `toLocaleString()`. If the decimals should go, they go from **both** cards; that is a separate decision.
+
+Naming note: the user asked for "final supply"; the card says **Total Supply** because `total_supply` sums `PRIMARY_SOURCES` — it is *primary* supply, and "final supply" would read as wrong to an energy modeller. It also matches the `label` already in `KPI_LABELS`.
+
+### 2. Custom Pathways band darkened
+
+`--deck-bg` `#EDEDED` → `#E4E4E4`. Band-vs-page contrast 1.17:1 → 1.27:1, and the same step lifts the white raised elements (scenario buttons, flyout rail) by the same arithmetic.
+
+**`.lg-lever-track` had to move with it**: `#C9C9C9` → `#C1C1C1`. Its comment records that `#D4D4D4` (1.27:1) was rejected as "too faint to read as a track" and `#C9C9C9` (1.41:1) chosen. On the new ground `#C9C9C9` measures **1.30:1** — essentially the value already rejected — so leaving it would have handed back exactly the contrast the band just gained. `#C1C1C1` restores 1.42:1. **Re-solve this the same way if the band ever moves again.**
+
+Incidental finding: **`--deck-ink-2`, `--deck-line`, `--deck-row-line` and `--deck-muted` are declared but used nowhere.** Only `--deck-ink` is live (11 uses). This matters because `--deck-muted` would have been the binding accessibility constraint here (it drops below 4.5:1 at this shade) and it does not bind, because nothing renders with it. Dead tokens are a trap for whoever tunes this next.
+
+### 3. The headline numbers, checked against Excel — read this before doubting a figure
+
+Prompted by the user feeling 2,201.98 / 2,902.52 looked high. Four findings, in order of importance.
+
+**(a) The engine is faithful. Verified, not assumed.** The workbook ships Excel's own cached results for the lever mix it was last saved with (`{0:3, 1:3, 2:21, 3:23, 4:1}`) — the one state where a direct comparison is possible without opening Excel. Loading that state and computing:
+
+| | Our engine | Excel's cached value |
+|---|---|---|
+| total_demand | **1,369.98** | 1,369.98 |
+| total_supply | **1,810.7561** | 1,810.7561032 |
+
+Zero difference. Separately, a novel 51-lever vector computed independently on Windows and inside a Linux container matched **bit-for-bit** across `total_demand`, `total_supply`, `emissions_2047_total`, `balance`, `imports`, `renewables`, `nuclear`.
+
+**(b) A diagnostic trap that produced a false alarm mid-session.** Reading `'Intermediate output'!BH54` *cold* returns **1,545**; reading it after the earlier year columns returns **1,810.76**. A 260 Mtoe spread purely from evaluation order — the 2047 column depends on earlier years having been evaluated, and the evaluator does not establish that ordering when asked for 2047 directly. **The app is unaffected**: `read_flows()` sweeps every year column, so `compute_outputs()` always warms them. **Rule for anyone writing a diagnostic script: call `compute_outputs()` first, or warm the year columns in order, before reading individual cells.** An alarm was raised on this before it was fully checked; it was a probe artifact, not a bug.
+
+**(c) `total_supply` and the workbook's own Total Primary Supply diverge at L3/L4.** Reproduced in fresh processes:
+
+| Pathway | Our supply | Workbook `BH54` | Diff |
+|---|---|---|---|
+| L1 / L2 | 2,902.52 / 1,994.26 | identical | 0.00 |
+| L3 | 1,529.36 | 1,552.70 | −23.34 |
+| L4 | 1,522.26 | 1,434.27 | +87.99 |
+
+Definitional, not arithmetic. `outputs.py` sums **gross flows** leaving each primary-source node; the workbook derives each carrier from `'2047'!Year.NetBalance` with clamps — non-coking coal imports are `MAX(-INDEX(...), …)`, flooring at zero when domestic production exceeds demand. They coincide at L1/L2 because nothing goes net-negative there. **Open decision**: leave it, read `BH54` directly for the KPI, or mirror the net-balance logic. Note `import_dependence` and `clean_share` divide by this same `total_supply` and inherit the divergence.
+
+**(d) There is no total-final-demand cell in the workbook at all.** Every sheet was searched; `TFC: Total Final Consumption` exists only on the historic static sheets, and `'2047'!row 22 "Total consumption"` covers only the eight sectors on that sheet, not the eleven in `FINAL_DEMAND_SECTORS` — it is **not** a valid cross-check (it reads 1,096.53 against our 1,369.98). So "is 2,201.98 what Excel says" is not a well-posed question against the file: **the demand total is entirely our own boundary choice**, encoded in a Python set. That set includes two sectors standard energy accounting usually excludes:
+
+| | 2047, saved state |
+|---|---|
+| Our `total_demand` | 1,369.98 |
+| minus Non-energy use (100.15) | 1,269.83 |
+| minus Refineries too (2.60) | **1,267.22** |
+
+Non-energy use is petrochemical feedstock (material, not burned); Refineries is a *transformation* step. Counting them makes demand **~7.5% higher** than a stricter definition. Defensible, but a choice, and it is the real answer to "why does this look high". **Second open decision.**
+
+Also confirmed: 2,201.98 is all-51-levers-at-1, matching the 2026-07-22 section exactly, and the ladder is 2201.98 / 1564.93 / 1225.04 / 1070.58.
+
+### 4. Dockerized — the app now runs as a portable image
+
+**New files** (no existing source file modified): `requirements.txt`, `.dockerignore`, `Dockerfile`, `wsgi.py`, `tools/loadtest.py`.
+
+Deliberately not created: `compose.yaml` (never needed — `docker run` was enough), and nothing was deployed yet.
+
+**Image**: `python:3.14-slim`, **343 MB**, non-root uid 10001, healthcheck on `/cache_stats`.
+
+**Design points that are load-bearing:**
+
+- **`$PORT` is honoured** (`--bind 0.0.0.0:${PORT:-5051}`). That single substitution is what makes the image host-agnostic — Fly, Render, Cloud Run, Railway and Heroku all inject it. `app.run()` binds `127.0.0.1`, which inside a container is unreachable, which is why gunicorn does the binding.
+- **The pickle is rebuilt inside the image**, before the UI is copied, so editing `ui/` does not invalidate that layer.
+- **The warm cache is baked in** — `cache/` (1,227 files / 4.4 MB) covering the 4 presets and every single-lever deviation. Keys are `sha256(xlsx) + output-schema hash + lever vector`, all platform-independent, so a Windows-built cache is valid in Linux. Verified: clicking presets leaves `computed` at 0.
+- **`IESS_RATE_LIMIT_MAX=3000`.** The default is 120/60s **per IP**, and a demo room behind one NAT is a single bucket — 30 people would get ~4 requests each per minute and start collecting 429s immediately. Env-overridable at run time, no rebuild.
+- **CMD is `["sh","-c","exec gunicorn …"]`** — exec form silences BuildKit's `JSONArgsRecommended` warning *and* makes gunicorn PID 1, so `docker stop`'s SIGTERM reaches it and `--graceful-timeout` applies. Plain shell form leaves gunicorn a child of `sh`, which does not forward signals.
+
+**Two real bugs, both found by measuring rather than reasoning:**
+
+**Bug 1 — `.dockerignore` patterns without `**/` only match the context ROOT.** `*.compiled.pkl` and `~$*.xlsx` therefore did nothing about `workbook/*`, so the **39 MB Windows-built pickle shipped into the image** and the `RUN` meant to rebuild it found a valid cache and loaded it in 0.9 s. The build was green; nothing in the log hinted at it. Caught only by `docker run --rm xlengine ls -lh /app/workbook/` and reading the timestamps — the pickle was dated *Sep 8* (the host's) instead of today. Fixed with `**/` prefixes. **Verify a rebuilt pickle by its date and mode**: a copied file keeps `rwxr-xr-x` from Windows, a Linux-created one is `rw-r--r--`.
+
+**Bug 2 — the GIL, not `MODEL_LOCK`, was the concurrency bottleneck.** The image originally ran `--workers 1 --threads 8`, reasoned as: cache hits return *before* taking `MODEL_LOCK`, so threads suffice. True but irrelevant — a cold compute is ~0.75 s of pure-Python CPU work that **holds the interpreter lock**, freezing every other thread including ones that only needed to gunzip a 2 ms cached answer. Measured at 30 users / 10% cold:
+
+| | 1 worker | **4 workers** |
+|---|---|---|
+| cached click p95 | 2,161 ms | **51 ms** |
+| cold compute p95 | 7,521 ms | **1,372 ms** |
+| overall p95 | 5,022 ms | **771 ms** |
+| throughput | 16.8 req/s | **34.4 req/s** |
+
+Now `--workers ${WEB_CONCURRENCY:-4} --threads 4`. **Memory is ~1.28 GB for 4 workers** (each loads its own ~400 MB model), so host with **2 GB**; set `WEB_CONCURRENCY=2` on anything smaller.
+
+**The multi-worker hazard, and why it did not require changing `app.py`.** `_levels_by_key` is per-process, so a `/set_scenario` on worker 1 followed by a `/recalc` on worker 2 loses the baseline and blanks the whole Insights panel. **Measured on a fresh 4-worker container: 28 of 40 concurrent recalcs lost the baseline.** (An earlier test showed 0/40 and was *contaminated* — prior load tests had already taught every worker the preset keys. Always test this cold.)
+
+Fix, in `wsgi.py`: **resolve the four presets at import**, which gunicorn runs once per worker. The browser only ever uses a preset as its baseline (`dashboard.js` sets `myBaselineKey` from `/set_scenario`, never from `/recalc`), and `compute_pathway()` calls `_remember_levels()` on every call *including cache hits* — so four disk reads per worker (~2 ms each, no model work) populate every key a client could present. After: **0 losses**, with one apparent failure traced to `lv40` having a ceiling of 3, so requesting level 4 clamps back to the baseline. Startup logs one `baseline warm:` line per pid — that is the visible proof it ran.
+
+`wsgi.py` also calls `start_cache_janitor()`, which otherwise never runs under any WSGI server (it is `__main__`-only in `app.py`, deliberately, so CLI tools importing `app` do not trigger deletions).
+
+**Concurrency correctness verified directly**, given the race `app.py` documents (two simultaneous requests both returning ~349.92): 10 users, 10 genuinely distinct lever vectors fired simultaneously at the container, then recomputed **one at a time on a separate engine**. 10/10 identical, 10/10 distinct answers. *Two earlier attempts at this test silently generated the same vector ten times* (`u*7+u` is `u*8`, and `8 % 4 == 0`) and would have "passed" while proving nothing — the `distinct answers` assertion is what makes the test mean anything. Keep it.
+
+**Cache ageing is not a risk.** `CACHE_MAX_AGE_DAYS=5` reaches only ad-hoc entries. Running the harshest possible prune (`max_age_seconds=0`) in the image kept **1,192 of 1,228** files: the frontier is passed as `keep_keys` and is exempt from ageing, and every container restart restores it from the image anyway.
+
+**The performance model, stated plainly** (measured, single user):
+
+| Action | Time | Engine ran? |
+|---|---|---|
+| Click a preset | 1 ms | no |
+| Move the first lever | 4 ms | no |
+| Move a **second** lever (new combination) | **767 ms** | yes |
+| Repeat that same combination | 2 ms | no |
+
+The baked frontier covers presets **plus one lever move**. The second lever steps off it. **Scaling does not fix the 767 ms** — more workers/containers raise throughput and shorten queues, but one evaluation of the workbook costs what it costs. Only more pre-computation (2-lever space is ~20k states, ~4 h) or a faster evaluator would move it.
+
+**`tools/loadtest.py`** — stdlib only, runs against localhost or a deployed URL. `--users N --seconds S --mix warm|cold|mixed`, reports p50/p95/p99 and counts 429s separately. `warm` = presets and single-lever nudges (all cache hits, the realistic demo); `cold` = random 51-lever vectors (all misses, the deliberate breaking-point test — expect throughput to flatline near 1/0.75s and latency to climb linearly, which is `MODEL_LOCK` working, not a fault).
+
+### Verification status
+
+Run against live containers, not reasoned about: build succeeds; pickle rebuilt in-image (date + mode checked); presets return 2201.98/1564.93/1225.04/1070.58 with `computed` staying 0; Windows↔Linux bit-identical on a cache miss; 30-user warm run p95 33 ms with zero 429s; 30-user mixed p95 771 ms; 10-way concurrent correctness; prune cannot evict the frontier; one `baseline warm` line per worker.
+
+**Not done:** not deployed anywhere, no HTTPS, no host chosen. `compose.yaml` was planned and never needed. The Sankey pin work and the Insights panel from earlier today were confirmed visually by the user, not by automated test.
+
+### Open decisions carried forward
+
+1. **Supply definition** at L3/L4 — ours (gross flows) vs the workbook's (net balance with clamps). Affects the new card and, through the divisor, `import_dependence` and `clean_share`.
+2. **Demand boundary** — whether Non-energy use and Refineries belong in "final demand" (~7.5% of the headline).
+3. **Horizontal scaling beyond one container** is now unblocked by the preset warm, but a shared cache volume would stop each container recomputing the same ad-hoc pathways.
+4. Still open from earlier today: lever row 49's level-5 tooltip (`levers.py:57` reads only H-K), and `fmtKpi`'s one-decimal rounding showing `2.8 → 2.8 (+2.1%)`.

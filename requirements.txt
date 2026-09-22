@@ -1,0 +1,22 @@
+# Python packages the container needs. Versions are pinned exactly so the
+# image is reproducible: "flask" alone would install whatever is newest on
+# build day, and a build that worked last week could break this week.
+#
+# These two are pinned to what the app has actually been developed and
+# verified against on the author's machine.
+flask==3.1.3
+openpyxl==3.1.5
+
+# The production web server. Flask's built-in server (app.run) prints
+# "WARNING: This is a development server" for real reasons: it is
+# single-connection-oriented and not hardened for the public internet.
+# Gunicorn is what actually serves the app in the container -- see the
+# Dockerfile's CMD for the worker/thread settings and why they are what
+# they are.
+gunicorn==23.0.0
+
+# NOT here on purpose:
+#   fonttools  - only tools/build_fonts.py imports it, and that script's
+#                output (ui/static/fonts/*.woff2) is already committed. A
+#                checkout never needs to run it, so shipping it would be
+#                dead weight in the image.

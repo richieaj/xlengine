@@ -1266,16 +1266,13 @@ function updateAllSubcatQuickButtons() {
   document.querySelectorAll(".lg-subcat-row").forEach(updateLeverRow);
 }
 
-// Clean share is now computed in outputs.py (kpis.clean_share) rather than
-// here. It had to move: it is one of the four headline cards, so the Insights
-// panel has to report its before/after alongside the other three, and
-// kpi_deltas() can only diff values the model actually emits. This reader
-// keeps the rounding in one place and falls back to the old client-side
-// formula only if an older cached payload arrives without the field.
-function cleanSharePct(data) {
-  if (data.kpis && typeof data.kpis.clean_share === "number") return Math.round(data.kpis.clean_share);
-  return data.total_supply ? Math.round((data.renewables + data.nuclear) / data.total_supply * 100) : 0;
-}
+// cleanSharePct() stood here. The Clean Share card became Total Supply 2047
+// (see all_energy.py), and this was its only caller, so the reader went with
+// it. Note what did NOT change: `kpis.clean_share` is still computed in
+// outputs.py and still shipped on every response, and it is still listed in
+// KPI_LABELS below — kpi_deltas() can return it, and the reason it was moved
+// server-side in the first place (a value has to be emitted by the model
+// before it can be diffed) is unaffected by which card is on screen.
 function emissionsGt(data) {
   // emissions_2047_total is 'IESS V3 Results'!J116 (Million tonne CO2e) — the
   // workbook's own total row, equal to emissions_by_sector_chart.total's last entry on
@@ -1310,7 +1307,14 @@ function renderOverviewKpis(data) {
   if (!demandEl) return; // not every tab has the KPI row (All Energy only)
   demandEl.textContent = data.total_demand.toLocaleString() + " Mtoe";
   document.getElementById("stat-demand-note").textContent = data.kpis.per_capita_demand.toLocaleString() + " MJ/person";
-  document.getElementById("stat-clean-value").textContent = cleanSharePct(data) + "%";
+  // Formatted exactly like Final Demand above — same field shape (2dp out of
+  // outputs.py), same .toLocaleString(), same unit. These two are halves of
+  // one balance sitting side by side, so a difference in precision between
+  // them would read as a difference in the numbers. An earlier pass rounded
+  // this one to whole Mtoe and got "2,903" beside "2,201.98"; if the decimals
+  // should go, they should go from both, which is a separate decision.
+  document.getElementById("stat-supply-value").textContent =
+    data.total_supply.toLocaleString() + " Mtoe";
   document.getElementById("stat-imports-value").textContent = data.kpis.import_dependence + "%";
 }
 
@@ -1318,21 +1322,37 @@ function renderOverviewKpis(data) {
 // flat lookup shared by the change-strip and the Insights panel so a KPI's
 // label/unit/scale is defined in exactly one place. emissions_2047_total is
 // server-side "Million tonne CO2e"; /1000 matches the stat card's own GtCO2.
+// `story` is the same KPI named as it would be said in a sentence, for the
+// Insights narrative. It is separate from `label` because the two have
+// different jobs: `label` heads a column and wants to be terse and
+// parallel ("Emissions (2047)"), while `story` sits mid-clause and wants to
+// read ("2047 emissions fall 12%"). Lower-casing `label` on the fly got
+// "emissions (2047) falls 12%", which is a caption with a verb stuck on it.
+//
+// `plural` picks the verb form. Only emissions is a plural subject, and
+// without this it read "2047 emissions falls 17.5%" — the kind of error that
+// makes a generated sentence announce itself as generated.
 const KPI_LABELS = {
-  total_demand: { label: "Final demand", unit: "Mtoe", scale: 1 },
-  total_supply: { label: "Total supply", unit: "Mtoe", scale: 1 },
-  per_capita_demand: { label: "Per-capita demand", unit: "MJ/person", scale: 1 },
-  import_dependence: { label: "Imported fuel share", unit: "%", scale: 1 },
-  clean_share: { label: "Clean share", unit: "%", scale: 1 },
-  emissions_2047_total: { label: "Emissions (2047)", unit: "GtCO₂", scale: 1 / 1000 },
+  total_demand: { label: "Final demand", story: "final demand", unit: "Mtoe", scale: 1 },
+  total_supply: { label: "Total supply", story: "total supply", unit: "Mtoe", scale: 1 },
+  per_capita_demand: { label: "Per-capita demand", story: "per-capita demand", unit: "MJ/person", scale: 1 },
+  import_dependence: { label: "Imported fuel share", story: "import reliance", unit: "%", scale: 1 },
+  clean_share: { label: "Clean share", story: "the clean share of supply", unit: "%", scale: 1 },
+  emissions_2047_total: { label: "Emissions (2047)", story: "2047 emissions", plural: true, unit: "GtCO₂", scale: 1 / 1000 },
 };
 
-// The four KPI cards, in the order the cards themselves are laid out — the two
+// The four headline KPIs, in the order the page lays them out — the two
 // headline figures first, then the supporting pair (see all_energy.py). The
-// Insights panel walks this list so "the resulting change in the four KPIs"
-// is literally the four cards on screen, in their own order, rather than
-// whatever order kpi_deltas() happened to return.
-const CARD_KPI_KEYS = ["total_demand", "emissions_2047_total", "clean_share", "import_dependence"];
+// Insights panel walks this list rather than whatever order kpi_deltas()
+// happened to return.
+//
+// "Cards" is now approximate on both ends and worth knowing before adding to
+// this list: emissions has no card (the GHG gauge above Custom Pathways is
+// that figure), and clean_share has a KPI entry but no longer a card either
+// — Total Supply 2047 took its slot. The list is the four quantities the
+// panel reports on, which is close to but not identical with what is boxed
+// on screen.
+const CARD_KPI_KEYS = ["total_demand", "emissions_2047_total", "total_supply", "import_dependence"];
 function fmtKpi(key, value) {
   const meta = KPI_LABELS[key];
   const v = value * meta.scale;
@@ -1538,6 +1558,185 @@ function renderBaseStateFacts(body, data) {
   ]);
 }
 
+/* ── The narrative half of the panel ──────────────────────────────────────
+   Everything below turns the two fields already on every /recalc response —
+   `lever_changes` ({id, name, from, to}) and `kpi_deltas` ({from, to, delta,
+   pct}) — into sentences. No new server round trip and no new model run: the
+   causal half of "you did X, and Y happened" was already on the wire, it was
+   just not being printed.
+
+   What this deliberately does NOT claim is attribution. With several levers
+   moved the panel says what you changed and what changed as a result, in that
+   order, but never "emissions fell BECAUSE of Solar PV" — isolating one
+   lever's contribution means re-running the model with that lever reverted
+   and the others left alone, which is a real computation per moved lever and
+   is not something the response carries. Ordering the two lists adjacently
+   invites the reader to draw the link; stating it would be inventing it. */
+
+/* One titled column of the panel. Returns the element its lines go into, so
+   the two lists are real containers rather than a flat run of siblings — which
+   is what lets the body lay them out side by side (see .rail-insights-body).
+   Sibling-flat markup could only ever stack.
+
+   The label reverses an earlier removal: it was dropped when the lever list
+   was, on the correct reasoning that one list under a panel header needs no
+   second heading. There are two lists again, saying different kinds of thing
+   (choices vs. consequences), and now sitting in adjacent columns where
+   telling them apart matters more, not less.
+
+   `wide` spans the section across both columns — for the idle state, which is
+   running prose rather than two parallel lists and should not be cut in half. */
+function addInsightsSection(body, label, wide) {
+  const sec = document.createElement("div");
+  sec.className = "insights-section" + (wide ? " insights-section-wide" : "");
+  if (label) {
+    const el = document.createElement("div");
+    el.className = "insights-group-label";
+    el.textContent = label;
+    sec.appendChild(el);
+  }
+  body.appendChild(sec);
+  return sec;
+}
+
+// The workbook's own sentence about a lever position, quoted under the line
+// that reports the move. Rendered quieter and without a divider so it reads
+// as an annotation on the line above rather than as another finding.
+function addInsightsNote(body, text) {
+  const el = document.createElement("div");
+  el.className = "insights-note";
+  el.textContent = text;   // textContent, not innerHTML — workbook prose is
+                           // still text from a spreadsheet, see addInsightsLine.
+  body.appendChild(el);
+}
+
+/* The ambition note the model itself carries for a lever at a given level —
+   Control!H:K, read by levers.py, and the very same prose the slider tooltip
+   shows on hover. It is already in the page as a data-descs JSON blob, so the
+   panel can quote the model's own words for what a lever position MEANS with
+   no endpoint, no round trip, and no second copy of the text to drift.
+
+   Looked up through data-lever-ids rather than by walking the deck: a flyout
+   row carries exactly one id (sidebar.py), which is what makes an exact-match
+   selector right here — a bundled deck row lists several comma-joined ids and
+   deliberately carries no descs at all, so it cannot be the match. */
+function leverDescFor(id, level) {
+  // Server-generated ids are "lv" + the Control-sheet row. Validated anyway,
+  // because the next line interpolates this into a selector string.
+  if (!/^lv\d+$/.test(id)) return null;
+  const row = document.querySelector('[data-lever-ids="' + id + '"]');
+  const lever = row && row.querySelector(".lg-lever");
+  if (!lever || !lever.dataset.descs) return null;
+  try {
+    return JSON.parse(lever.dataset.descs)[String(level)] || null;
+  } catch (e) {
+    return null;   // 7 of the 51 levers have no notes in the workbook at all,
+                   // and one (row 49) has a level whose column is unread — a
+                   // missing note is a normal state, not an error to report.
+  }
+}
+
+/* How big a KPI's move is, for ranking which ones lead the summary.
+   Percentage-unit KPIs are ranked on their move in POINTS and everything else
+   on relative percent, which is not a strictly comparable scale — it is a
+   presentation order, not a claim about which result matters most. */
+function kpiMagnitude(key, d) {
+  const meta = KPI_LABELS[key];
+  if (meta.unit === "%") return Math.abs(d.delta * meta.scale);
+  return d.pct != null ? Math.abs(d.pct) : 0;
+}
+
+/* One KPI's move as a clause: "2047 emissions fall 12%", "the clean share of
+   supply rises 9 points".
+
+   The points/percent distinction is the important part. For a KPI that is
+   itself a percentage, `pct` is a percent OF a percent: clean share going
+   30% → 39% arrives as pct = 30. Printing "clean share up 30%" next to two
+   figures the reader can see are 9 apart states something both confusing and
+   much larger-sounding than what happened. Percentage-unit KPIs therefore
+   report points, and only points. */
+function kpiClause(key, d) {
+  const meta = KPI_LABELS[key];
+  const rising = d.delta > 0;
+  const verb = meta.plural ? (rising ? "rise" : "fall") : (rising ? "rises" : "falls");
+  if (meta.unit === "%") {
+    const pts = pointsMoved(d, meta);
+    return `${meta.story} ${verb} ${pts} point${pts === 1 ? "" : "s"}`;
+  }
+  if (d.pct == null) return `${meta.story} ${verb}`;
+  return `${meta.story} ${verb} ${Math.abs(d.pct)}%`;
+}
+
+// The move of a percentage-unit KPI, in points, rounded for display. One
+// helper because the headline clause and the figure line beneath it must show
+// the same number — computing it twice is how they drift apart.
+function pointsMoved(d, meta) {
+  const pts = Math.abs(d.delta * meta.scale);
+  return pts >= 10 ? Math.round(pts) : Math.round(pts * 10) / 10;
+}
+
+// Quote the workbook note only when one or two levers moved. The notes are
+// two to three sentences each; past that the panel stops being a summary and
+// becomes a wall of text the reader has to scroll past to reach the results.
+const STORY_PROSE_MAX = 2;
+// Past this many, name-per-line gives way to a single counted line — the same
+// fold problem that got the lever list removed the first time.
+const STORY_NAMES_MAX = 5;
+
+function renderLeverStory(body, leverChanges) {
+  const n = leverChanges.length;
+
+  if (n <= STORY_NAMES_MAX) {
+    leverChanges.forEach((lv) => {
+      const raised = lv.to > lv.from;
+      addInsightsLine(body, raised ? "up" : "down", [
+        { strong: lv.name },
+        raised ? " raised from level " : " lowered from level ",
+        `${lv.from} to `, { strong: String(lv.to) }, ".",
+      ]);
+      if (n <= STORY_PROSE_MAX) {
+        const note = leverDescFor(lv.id, lv.to);
+        if (note) addInsightsNote(body, note);
+      }
+    });
+    return;
+  }
+
+  // Many levers at once — the scenario-switch case, and the one the old panel
+  // handled worst. A count plus the split between raised and lowered says more
+  // about the shape of the change than five names and an ellipsis would.
+  const raised = leverChanges.filter((lv) => lv.to > lv.from).length;
+  const lowered = n - raised;
+  const split = raised && lowered
+    ? `${raised} raised, ${lowered} lowered`
+    : (raised ? "all raised" : "all lowered");
+  addInsightsLine(body, raised >= lowered ? "up" : "down", [
+    { strong: String(n) + " levers" }, ` moved — ${split}.`,
+  ]);
+  const names = leverChanges.slice(0, 3).map((lv) => lv.name).join(", ");
+  addInsightsNote(body, n > 3 ? `${names} and ${n - 3} more.` : names + ".");
+}
+
+// The lead sentence: the one or two indicators that moved most, said as prose
+// before the precise figures are listed underneath. This is what makes the
+// panel answer "so what happened?" in one line without the reader having to
+// compare four before/after pairs themselves.
+function renderOutcomeHeadline(body, kpiChanges) {
+  const moved = CARD_KPI_KEYS
+    .filter((key) => kpiChanges[key])
+    .map((key) => ({ key: key, d: kpiChanges[key] }))
+    .sort((a, b) => kpiMagnitude(b.key, b.d) - kpiMagnitude(a.key, a.d));
+
+  if (!moved.length) {
+    addInsightsLine(body, null, ["The four headline indicators hold steady."]);
+    return;
+  }
+  const clauses = moved.slice(0, 2).map((m) => kpiClause(m.key, m.d));
+  // No comma before "and": two clauses joined is not a list.
+  const sentence = (clauses.length > 1 ? clauses[0] + " and " + clauses[1] : clauses[0]) + ".";
+  addInsightsLine(body, null, [sentence.charAt(0).toUpperCase() + sentence.slice(1)]);
+}
+
 function renderInsights(data) {
   const body = document.getElementById("insights-panel-body");
   body.innerHTML = "";
@@ -1545,43 +1744,58 @@ function renderInsights(data) {
   const leverChanges = data.lever_changes || [];
   const kpiChanges = data.kpi_deltas || {};
 
-  // `leverChanges` is still read, but only to decide WHETHER anything has
-  // moved. The list of moved levers is deliberately not printed: which lever
-  // sits where is already shown, live, by the Custom Pathways deck below —
-  // every moved row's handle is visibly off its neighbours' position — so
-  // restating it here filled the panel with rows the reader had just set
-  // themselves and pushed the KPI effects, the one thing the deck cannot
-  // show, below the fold. This panel now answers exactly one question: what
-  // did that do to the results?
   if (!leverChanges.length) {
     // No "Base state" chip either: labelling the idle message put a heading
-    // over a single sentence and nothing else.
-    renderBaseStateFacts(body, data);
+    // over a single sentence and nothing else. Full width — these are three
+    // running sentences, not a list to be columnised.
+    renderBaseStateFacts(addInsightsSection(body, null, true), data);
     return;
   }
 
-  // The four cards, in card order, each with its own before → after. A card
-  // that did not move is stated as unchanged rather than dropped: "emissions
-  // held still while demand fell" is a real result, and silently omitting it
-  // reads as an oversight.
+  // The moved levers ARE printed now, reversing the earlier decision to leave
+  // them out. The old reasoning — the Custom Pathways deck already shows every
+  // handle's position, so restating it is redundant — held for the position
+  // alone. It does not hold for what the position means: the deck can show you
+  // that Buildings sits at 3, but only the workbook's own ambition note says
+  // that level 3 is a complete retrofit of two-thirds of existing buildings.
+  // That sentence exists, is authored, and was reaching the browser already.
+  // The fold concern is answered by budget instead of by omission — one line
+  // per lever, prose for at most two, a single counted line past five.
+  const changedCol = addInsightsSection(body, "What you changed");
+  renderLeverStory(changedCol, leverChanges);
+
+  const effectCol = addInsightsSection(body, "What it did");
+  renderOutcomeHeadline(effectCol, kpiChanges);
+
+  // The moved cards only, in card order, each with its own before → after.
   //
-  // No group label over these. It marked a second list back when the lever
-  // list was the first one; with that gone there is one list, and the panel's
-  // own "Insights" heading already sits directly above it.
+  // An unmoved card used to get a "Final demand unchanged" line, on the
+  // reasoning that "emissions held still while demand fell" is itself a
+  // result and dropping it silently reads as an oversight. That holds for a
+  // table, which promises one row per KPI; it does not hold for a summary.
+  // The line spent a row of a narrow panel restating a non-event, and the
+  // headline sentence above already names what did move — so a KPI's absence
+  // from this list now means exactly what the reader assumes it means.
   CARD_KPI_KEYS.forEach((key) => {
     const meta = KPI_LABELS[key];
     const d = kpiChanges[key];
-    if (!d) {
-      addInsightsLine(body, null, [meta.label + " ", { strong: "unchanged" }]);
-      return;
+    if (!d) return;
+    // Points for percentage-unit KPIs, percent for the rest — same reasoning
+    // as kpiClause(), and the two must agree: the headline sentence and the
+    // figure line directly beneath it describe the same move.
+    let suffix = "";
+    if (meta.unit === "%") {
+      const pts = pointsMoved(d, meta);
+      suffix = ` (${d.delta > 0 ? "+" : "−"}${pts} pt${pts === 1 ? "" : "s"})`;
+    } else if (d.pct != null) {
+      suffix = ` (${d.delta > 0 ? "+" : "−"}${Math.abs(d.pct)}%)`;
     }
-    const pct = d.pct != null ? ` (${d.delta > 0 ? "+" : "−"}${Math.abs(d.pct)}%)` : "";
     // The before/after arrow is a drawn element between two bolded figures,
     // not a character inside one string — see arrowEl().
-    addInsightsLine(body, d.delta > 0 ? "up" : "down", [
+    addInsightsLine(effectCol, d.delta > 0 ? "up" : "down", [
       meta.label + " ",
       { strong: fmtKpi(key, d.from) }, { arrow: true }, { strong: fmtKpi(key, d.to) },
-      pct,
+      suffix,
     ]);
   });
 }
@@ -2177,6 +2391,16 @@ function sizeSankeyToViewport(svgEl) {
   svgEl.style.height = Math.max(320, avail) / scale + "px";
 }
 
+/* The current diagram's "drop the pinned selection", or null when nothing is
+   pinned to drop. renderSankey reassigns it on every render; the Esc listener
+   below is registered once at load, so re-rendering cannot stack duplicates
+   (which is what binding it inside renderSankey would have done — one extra
+   live listener per year-button click, each holding a dead graph). */
+let sankeyUnpin = null;
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && sankeyUnpin) sankeyUnpin();
+});
+
 function renderSankey(yearData) {
   if (!yearData || !window.d3 || !window.d3.sankey) return;
   const svgEl = document.getElementById("sankeySvg");
@@ -2306,10 +2530,11 @@ function renderSankey(yearData) {
     .text((d) => d.name);
 
   function clearHighlight() {
-    link.classed("is-traced", false).classed("is-dimmed", false);
+    link.classed("is-traced", false).classed("is-dimmed", false).classed("is-pinned", false);
     flow.classed("is-on", false);
-    rect.classed("is-dimmed", false);
+    rect.classed("is-dimmed", false).classed("is-pinned", false);
     label.classed("is-dimmed", false);
+    svgEl.classList.remove("sankey-svg-pinned");
   }
 
   function highlight(litLinks, litNodes) {
@@ -2319,6 +2544,90 @@ function renderSankey(yearData) {
     rect.classed("is-dimmed", (d) => !litNodes.has(d));
     label.classed("is-dimmed", (d) => !litNodes.has(d));
   }
+
+  /* ---- Pinning -------------------------------------------------------------
+     Hovering answers "what is this?" but only while the pointer stays put, and
+     the moment you move toward a label to read it the highlight is gone. A
+     click pins the current selection so the route stays lit with the pointer
+     anywhere: you can then move along it, read every node it touches, and
+     hover each band for its own figure without losing the picture.
+
+     While something is pinned, hover no longer repaints — that is the whole
+     point of pinning — but the tooltip still tracks the pointer, so the
+     "how much, and where" question stays answerable on any band you touch,
+     which is what makes the pinned state worth sitting in.
+
+     A selection is the same shape hover already produced: one link and its two
+     endpoints for a band, or the full transitive route for a node. Pinning
+     therefore adds no new notion of what "selected" means, only how long it
+     lasts.
+
+     `pinned` is deliberately local to renderSankey. Every re-render (a year
+     button, a recalc, a resize) rebuilds the graph, so the node and link
+     objects a stale selection referred to no longer exist — scoping it here
+     means a re-render drops the pin rather than leaving it pointing at
+     detached data. */
+  let pinned = null;   // { datum, sel } — sel is { litLinks, litNodes }
+
+  const selectionFor = (d, kind) => (kind === "link"
+    ? { litLinks: new Set([d]), litNodes: new Set([d.source, d.target]) }
+    : trace(d));
+
+  function paint(sel, isPinned) {
+    if (!sel) { clearHighlight(); return; }
+    highlight(sel.litLinks, sel.litNodes);
+    // .is-pinned rides on top of .is-traced: same route, held a little
+    // stronger, so a pinned selection is visibly not just a lingering hover.
+    link.classed("is-pinned", (d) => isPinned && sel.litLinks.has(d));
+    rect.classed("is-pinned", (d) => isPinned && sel.litNodes.has(d));
+    // Scopes the harder dim (see .sankey-svg-pinned) to the pinned state only.
+    svgEl.classList.toggle("sankey-svg-pinned", Boolean(isPinned));
+  }
+
+  function repaintResting() {
+    if (pinned) paint(pinned.sel, true);
+    else clearHighlight();
+  }
+
+  function onEnter(d, kind) {
+    if (pinned) return;   // frozen: the pinned route outranks a passing hover
+    paint(selectionFor(d, kind), false);
+  }
+
+  function onLeave() {
+    tooltip.classList.remove("show");
+    repaintResting();
+  }
+
+  /* Click rules, chosen so the pointer is never trapped:
+       same element again  -> unpin (what the user asked for)
+       a different element -> pin THAT instead, in one click rather than two
+       empty background    -> unpin
+     Re-pinning on a different element is the one liberty taken with "click
+     again anywhere to deselect": requiring an unpin click before every new
+     selection makes comparing two routes twice the work, and the background
+     and the element itself both still deselect. */
+  function onClick(event, d, kind) {
+    event.stopPropagation();   // don't let the svg's own handler unpin it again
+    if (pinned && pinned.datum === d) {
+      pinned = null;
+      paint(selectionFor(d, kind), false);   // pointer is still here — show hover
+      return;
+    }
+    pinned = { datum: d, sel: selectionFor(d, kind) };
+    paint(pinned.sel, true);
+  }
+
+  svg.on("click", () => { if (pinned) { pinned = null; clearHighlight(); } });
+  // Esc is the conventional "put that down" and costs one line. Routed through
+  // a module-level handle so the listener is registered once, not once per
+  // render — see the declaration above renderSankey.
+  sankeyUnpin = () => {
+    if (!pinned) return;
+    pinned = null;
+    tooltip.classList.remove("show");
+    clearHighlight();
+  };
 
   /* The tooltip is centred over the cursor and sits above it
      (transform: translate(-50%, -120%)), so near an edge it used to hang off
@@ -2354,8 +2663,9 @@ function renderSankey(yearData) {
       showTip(event, "<b>" + escapeHtml(d.source.name) + " " + ARROW_SVG + " " + escapeHtml(d.target.name) + "</b><br>" +
         d.value.toFixed(2) + " Mtoe<br>" + share.toFixed(0) + "% of " + escapeHtml(d.source.name));
     })
-    .on("mouseenter", (event, d) => highlight(new Set([d]), new Set([d.source, d.target])))
-    .on("mouseleave", () => { tooltip.classList.remove("show"); clearHighlight(); });
+    .on("mouseenter", (event, d) => onEnter(d, "link"))
+    .on("mouseleave", onLeave)
+    .on("click", (event, d) => onClick(event, d, "link"));
 
   rect
     .on("mousemove", (event, d) => {
@@ -2366,8 +2676,9 @@ function renderSankey(yearData) {
       // beside the one number the tooltip exists to give.
       showTip(event, "<b>" + escapeHtml(d.name) + "</b><br>" + throughput(d).toFixed(2) + " Mtoe");
     })
-    .on("mouseenter", (event, d) => { const t = trace(d); highlight(t.litLinks, t.litNodes); })
-    .on("mouseleave", () => { tooltip.classList.remove("show"); clearHighlight(); });
+    .on("mouseenter", (event, d) => onEnter(d, "node"))
+    .on("mouseleave", onLeave)
+    .on("click", (event, d) => onClick(event, d, "node"));
 
   /* ---- Entry animation ----------------------------------------------------
      Links draw themselves in, staggered by how deep they sit in the diagram,

@@ -1,0 +1,65 @@
+# Everything listed here is left OUT of the "build context" -- the copy of
+# this folder that `docker build` ships to the Docker engine before the build
+# starts. Without this file the context is 89.3 MB / 1,602 files; with it,
+# about 14 MB. Smaller context = faster builds and a smaller image.
+#
+# Anything excluded here simply does not exist as far as the Dockerfile is
+# concerned: a COPY cannot reach it.
+#
+# NOTE THE `**/` PREFIXES, they are load-bearing. A pattern with no slash in it
+# is matched against the path relative to the context ROOT only -- so a bare
+# `*.compiled.pkl` excludes a pickle sitting next to this file and does NOTHING
+# about workbook/*.compiled.pkl. That is not hypothetical: the first build of
+# this image shipped the 40 MB Windows-built pickle and Excel's lock file into
+# workbook/ for exactly that reason, and the RUN step that was supposed to
+# rebuild the pickle instead found a valid cache and loaded it in 0.9 s. It was
+# only caught by listing the directory inside the image. `**/` matches at any
+# depth, which is what these patterns meant all along.
+
+# ── Version history ──────────────────────────────────────────────────────
+# 25.7 MB of git objects. The image runs code; it has no use for history.
+.git/
+.gitignore
+
+# ── Python bytecode ──────────────────────────────────────────────────────
+# Compiled on Windows. The container is Linux; let it compile its own.
+**/__pycache__/
+**/*.py[cod]
+
+# ── The compiled workbook pickle (39.4 MB) ───────────────────────────────
+# THE important exclusion. workbook_model.py caches the parsed workbook as a
+# pickle, and a pickle is bound to the interpreter and class definitions that
+# wrote it -- this one came from Windows Python 3.14.6. The Dockerfile
+# regenerates it inside the image with the image's own Python, so the file is
+# correct by construction instead of correct by luck. A stale pickle that
+# happens to load is a worse failure than one that refuses to.
+**/*.compiled.pkl
+
+# ── Excel's lock artifact ────────────────────────────────────────────────
+# A ~165 B file Excel writes while the workbook is open. Currently present
+# at workbook/~$IESS2047_Version_3.0.xlsx, i.e. NOT at the context root.
+**/~$*.xlsx
+
+# ── Not needed at runtime ────────────────────────────────────────────────
+tests/                              # 8.2 MB of golden fixtures
+img/                                # 0.5 MB; Flask serves ui/static, not this
+CLAUDE_CODE_PROJECT_CONTEXT.md      # 524 KB of project notes
+fullcomparision.md
+jolinsonrichie-*.json               # 324 KB export, unused by the app
+ui/debug_supply_chart.png
+
+# ── Docker's own files ───────────────────────────────────────────────────
+# No reason to copy these into the image they describe.
+Dockerfile
+.dockerignore
+compose.yaml
+
+# ── NOT excluded, deliberately ───────────────────────────────────────────
+#   cache/            4.4 MB, 1,227 files -- the pre-computed pathway cache.
+#                     This is the warm start: it covers all 4 presets and
+#                     every single-lever tweak from each, so those are
+#                     instant cache hits that never touch the engine. Its
+#                     keys are sha256(xlsx) + output-schema hash + lever
+#                     vector, all platform-independent, so a cache built on
+#                     Windows is valid inside a Linux container.
+#   workbook/*.xlsx   8.9 MB -- the model itself. Obviously required.
