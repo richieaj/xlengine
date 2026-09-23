@@ -5044,6 +5044,38 @@ The likely source of the confusion is the chart on the adjacent sub-tab: the Ind
 
 If per-capita is ever genuinely wanted in kilograms, it needs the values multiplied by 1000 **as well as** the label changed. Relabelling alone would be a factor-of-1000 error in a government model.
 
+### 6. Layout collapse on other machines — fitUiScale traded WIDTH away to fit height
+
+Reported from a Mac over a Cloudflare tunnel: overlapping lever columns, headings wrapping
+mid-phrase, "font size gets really small and messy". Not browser-specific and not the tunnel —
+it reproduces in headless Chrome, and the font was verified as served correctly over the tunnel
+(200, `font/woff2`, valid `wOF2` magic bytes).
+
+**Cause.** `fitUiScale()` scales the page until the footer meets the bottom of the window. It
+optimises HEIGHT only and never checks that the width still works. Because `zoom` divides the
+layout viewport, scaling UP makes the page NARROWER in css pixels:
+
+| window | --ui-scale | layout width | |
+|---|---|---|---|
+| 1512x982 | 0.85 | 1788 css px | fine |
+| 1512x1900 | 1.45 | **1041 css px** | columns collide |
+| 1440x760 | 0.70 (floor) | 2057 css px | text unreadably small |
+
+Worst on the "coming soon" tabs, which have almost no content: the fit sees a very short page and
+zooms toward UI_SCALE_MAX to fill the window, shredding the deck on the way.
+
+**Fix**: `MIN_LAYOUT_WIDTH = 1500` (measured — the deck lays out cleanly at 1565 css px and
+collides at 1041), and the fit's per-pass clamp now uses
+`widthCap = max(UI_SCALE_MIN, min(UI_SCALE_MAX, clientWidth / MIN_LAYOUT_WIDTH))` instead of
+`UI_SCALE_MAX`. Height is what is being fitted; width is a constraint the fit may not violate
+while doing it. After: every window size tested holds layout width >= 1500 (1512x1900 went
+1041 -> 1516).
+
+**Still open**: the other direction. `UI_SCALE_MIN = 0.7` is what makes text tiny on a short
+window, and raising it means the page scrolls instead — a real trade against the deliberate
+"fits in one viewport, no scrolling" design, so it was left as the user's call rather than
+changed on demo eve.
+
 ### Verification status
 
 Run against live containers, not reasoned about: build succeeds; pickle rebuilt in-image (date + mode checked); presets return 2201.98/1564.93/1225.04/1070.58 with `computed` staying 0; Windows↔Linux bit-identical on a cache miss; 30-user warm run p95 33 ms with zero 429s; 30-user mixed p95 771 ms; 10-way concurrent correctness; prune cannot evict the frontier; one `baseline warm` line per worker.

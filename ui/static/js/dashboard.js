@@ -2773,6 +2773,23 @@ function renderSankey(yearData) {
 const UI_SCALE_MIN = 0.7;
 const UI_SCALE_MAX = 1.8;
 
+/* The narrowest LAYOUT (i.e. post-zoom, CSS-pixel) width this stylesheet
+   renders correctly at. Measured, not guessed: the Custom Pathways deck lays
+   out cleanly at 1565 css px and its columns collide at 1041.
+
+   This exists because the fit below optimises HEIGHT and, left alone, will
+   happily trade away width to get it. `zoom` divides the layout viewport, so
+   scaling UP makes the page NARROWER in css pixels: at zoom 1.45 a 1512 px
+   window is only 1041 css px, and the deck's four lever columns plus the
+   Insights rail cannot fit that. The symptom is columns overlapping each
+   other and headings wrapping mid-phrase -- reported from a Mac, but nothing
+   about it is browser-specific; it reproduces in headless Chrome.
+
+   It bites hardest on the "coming soon" tabs, which have almost no content:
+   the fit sees a very short page, zooms toward UI_SCALE_MAX to fill the
+   window, and shreds the deck on the way. */
+const MIN_LAYOUT_WIDTH = 1500;
+
 function fitUiScale() {
   const footer = document.querySelector(".site-footer");
   if (!footer) return;
@@ -2795,6 +2812,17 @@ function fitUiScale() {
   // the natural end of the content again, which is what the scale must fit.
   // The class is removed in `finally`: it must never survive a throw, or the
   // deck stops filling and the gap comes back with no obvious cause.
+  // The width ceiling, computed once per fit. Zooming in shrinks the layout
+  // viewport (clientWidth / scale), so this is the largest scale that still
+  // leaves the stylesheet MIN_LAYOUT_WIDTH css pixels to lay out in.
+  //
+  // Floored at UI_SCALE_MIN so a genuinely narrow window cannot drive the
+  // whole UI below the readability limit chasing a width it can never have.
+  // On such a window the page scrolls sideways instead, which is a far better
+  // failure than overlapping controls.
+  const widthCap = Math.max(UI_SCALE_MIN,
+                            Math.min(UI_SCALE_MAX, root.clientWidth / MIN_LAYOUT_WIDTH));
+
   document.body.classList.add("measuring-fit");
   try {
     for (let pass = 0; pass < 6; pass++) {
@@ -2804,7 +2832,9 @@ function fitUiScale() {
       // exactly on the edge and rounding can hand us a scrollbar anyway.
       const ratio = (root.clientHeight * 0.995) / bottom;
       if (Math.abs(ratio - 1) < 0.004) break;
-      const next = Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, scale * ratio));
+      // widthCap, not UI_SCALE_MAX: height is what we are fitting, width is a
+      // constraint we are not allowed to violate while doing it.
+      const next = Math.min(widthCap, Math.max(UI_SCALE_MIN, scale * ratio));
       if (next === scale) break;  // clamped — no point iterating further
       scale = next;
       root.style.setProperty("--ui-scale", String(scale));
