@@ -13,6 +13,36 @@
 # heading over three rows says the same thing with a third of the chrome.
 # Panel titles shown to users live in pages/sidebar.py's
 # GROUP_DISPLAY_NAMES, not here.
+# The highest ambition level the MODEL actually implements, as opposed to the
+# highest the Control sheet's LIMIT column advertises.
+#
+# Exactly one lever disagrees: row 49, "Fuel Switching Choices - Iron and
+# Steel", has LIMIT = 5 and a real authored note in Control!L49 ("Increased use
+# of Scrap") under a column headed "5 (or E)". But the calculation behind it was
+# never written. Driven directly against the engine with every other lever held
+# at 2:
+#
+#     level 1   demand 1588.05   supply 2026.24   emissions 5487.21
+#     level 4   demand 1518.71   supply 1930.32   emissions 5080.23
+#     level 5   demand 1588.05   supply 2026.24   emissions 5487.21
+#
+# Level 5 is bit-identical to level 1 across all three, which is what an Excel
+# IF/CHOOSE chain does when it handles 1-4 and lets anything else fall through
+# to the default branch. Three independent outputs agreeing to the last decimal
+# is not coincidence.
+#
+# So offering level 5 was actively misleading, not merely cosmetic: dragging
+# that slider to maximum silently computed the LEAST ambitious case while the
+# UI showed the most ambitious. It also pushed the bundled "Industry" row to a
+# 5-tick track, since a row's ceiling is the max of its members.
+#
+# Capped here rather than in the workbook because the workbook is the source of
+# truth we read, not one we edit. app.py's ALL_LEVER_MAX derives from this, so
+# the cap reaches the slider ticks, canonical_levels()'s clamping and
+# enumerate_frontier() together. If the model ever gains a real level 5, raise
+# this and the lever's own LIMIT governs again.
+MODEL_MAX_LEVEL = 4
+
 CATEGORY_RANGES = [
     # Order within a group follows this list; "Other" also takes the
     # unclassified leftovers, inserted ahead of these two (see load_levers).
@@ -51,7 +81,10 @@ def load_levers(eng):
         if c == 4 and isinstance(cell.value, str) and cell.value.strip():
             names[r] = cell.value.strip()
         if c == 6 and isinstance(cell.value, (int, float)):
-            limits[r] = int(cell.value)
+            # Capped at MODEL_MAX_LEVEL, because the Control sheet's LIMIT
+            # column promises one level the model does not implement — see the
+            # constant's own note.
+            limits[r] = min(int(cell.value), MODEL_MAX_LEVEL)
         if c == 5 and isinstance(cell.value, (int, float)):
             vals[r] = int(cell.value)
         if c in (8, 9, 10, 11) and isinstance(cell.value, str) and cell.value.strip():

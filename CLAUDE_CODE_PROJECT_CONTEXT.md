@@ -5076,6 +5076,42 @@ window, and raising it means the page scrolls instead — a real trade against t
 "fits in one viewport, no scrolling" design, so it was left as the user's call rather than
 changed on demo eve.
 
+### 7. A lever offered a 5th ambition level the model never implemented
+
+User noticed the bundled **Industry** row drew a 5-tick track, and its sub-lever
+"Fuel Switching Choices - Iron and Steel" offered 5 levels.
+
+The Control sheet really does advertise five for that one lever: `F49` (LIMIT) = 5, and `L49`
+holds an authored note, "Increased use of Scrap", under a column headed `5 (or E)`. It is the
+only lever in the workbook above 4 (the other outliers are six levers capped at 3).
+
+**But the calculation behind it was never written.** Driven against the engine with every other
+lever held at 2:
+
+| level | total_demand | total_supply | emissions 2047 |
+|---|---|---|---|
+| 1 | 1588.05 | 2026.24 | 5487.21 |
+| 4 | 1518.71 | 1930.32 | 5080.23 |
+| **5** | **1588.05** | **2026.24** | **5487.21** |
+
+Level 5 is bit-identical to level 1 across all three outputs — the signature of an Excel
+IF/CHOOSE chain that handles 1-4 and lets anything else fall through to its default branch.
+
+This was **actively misleading, not cosmetic**: dragging that slider to maximum silently computed
+the LEAST ambitious case while the UI showed the most ambitious. It also forced the bundled
+Industry row to 5 ticks, since a row's ceiling is the max of its members.
+
+**Fix**: `MODEL_MAX_LEVEL = 4` in `ui/levers.py`, applied where the LIMIT column is parsed. Capped
+there rather than in the workbook, because the workbook is the source of truth this project reads,
+not one it edits. `app.py`'s `ALL_LEVER_MAX` derives from it, so the cap reaches the slider ticks,
+`canonical_levels()`'s clamping and `enumerate_frontier()` together. Verified on the served page:
+55 sliders at max 4, 7 at max 3, **none at 5**, and both the bundled row and the lv49 flyout row
+now read `data-max="4"`. Asking for `lv49=5` clamps to 4.
+
+If the model ever gains a real level 5, raise `MODEL_MAX_LEVEL` and the lever's own LIMIT governs
+again. This also closes the row-49 tooltip gap noted earlier today: level 5 no longer exists, so
+there is no longer a slider position without a note.
+
 ### Verification status
 
 Run against live containers, not reasoned about: build succeeds; pickle rebuilt in-image (date + mode checked); presets return 2201.98/1564.93/1225.04/1070.58 with `computed` staying 0; Windows↔Linux bit-identical on a cache miss; 30-user warm run p95 33 ms with zero 429s; 30-user mixed p95 771 ms; 10-way concurrent correctness; prune cannot evict the frontier; one `baseline warm` line per worker.
