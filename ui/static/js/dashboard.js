@@ -266,7 +266,25 @@ function stackedAreaDatasets(chartData) {
   const datasets = names.map((name, i) => {
     const color = colorForSeries(name, i);
     return {
-      label: name, data: chartData.series[name], fill: true,
+      // fill: the dataset BELOW this one (relative index "-1"), except the
+      // bottom band which fills to the axis.
+      //
+      // This was `fill: true`, which in Chart.js means fill to the ORIGIN, not
+      // fill to the band underneath. With every series positive the two look
+      // identical, so it went unnoticed for a long time — but the Electricity
+      // Supply chart's "Electricity trade" is NET imports and is NEGATIVE in
+      // the early years (-1.63 TWh in 2022; India was a small net exporter).
+      // A fill-to-origin on a negative stacked point paints a wedge from that
+      // dataset's line all the way down to zero, which rendered as a plum
+      // triangle across the bottom-left of the chart, tapering out exactly
+      // where the series crosses back above zero between 2022 and 2027.
+      // Confirmed by clamping the negatives and re-rendering: the wedge
+      // disappeared and those pixels returned to Coal's own colour.
+      //
+      // Filling to "-1" is what a stacked area chart actually means, and it
+      // stays correct for negative values -- they render as a thin band below
+      // the axis, which is the honest picture, rather than being hidden.
+      label: name, data: chartData.series[name], fill: i === 0 ? "origin" : "-1",
       backgroundColor: areaFill(color), borderColor: color,
       borderWidth: 0.5,
       // Carried for the legend swatch, the tooltip and the in-band label, all

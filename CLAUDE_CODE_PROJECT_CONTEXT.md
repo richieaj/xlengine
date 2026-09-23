@@ -5112,6 +5112,43 @@ If the model ever gains a real level 5, raise `MODEL_MAX_LEVEL` and the lever's 
 again. This also closes the row-49 tooltip gap noted earlier today: level 5 no longer exists, so
 there is no longer a slider position without a note.
 
+### 8. Stacked area charts filled to the ORIGIN, not to the band below
+
+User reported a "random dip" at the bottom-left of the Electricity Supply chart — a plum wedge
+rising out of zero at 2022 and tapering away by about 2025, which reads as a data error to anyone
+looking at it.
+
+**Cause.** `stackedAreaDatasets()` set `fill: true` on every band. In Chart.js that means fill to
+the ORIGIN, not fill to the dataset below. With every series positive the two are
+indistinguishable, which is why it survived so long. But `electricity_supply_chart`'s
+"Electricity trade" is NET imports and is **negative** early — `-1.63` TWh in 2022, India being a
+small net exporter — and a fill-to-origin on a negative stacked point paints a wedge from that
+band's line all the way down to zero.
+
+**Attributed by experiment, not inspection.** The wedge's colour was sampled (`#523B49` plum
+against Coal's `#374E5C` slate), then the negative points were clamped to 0 in a live Chart.js
+instance and the chart re-rendered: every pixel in the wedge returned to Coal's own colour. The
+taper also lands exactly where the series crosses back above zero between 2022 and 2027.
+
+**Fix**: `fill: i === 0 ? "origin" : "-1"` — the bottom band fills to the axis, every other band
+fills to the one below it, which is what a stacked area chart actually means. Negative values now
+render as a thin band below the axis (the honest picture) instead of a false wedge. Verified:
+the plum pixels are gone and the Electricity and All Energy charts both render correctly.
+
+**Three series carry negatives**, worth knowing before reading any of these charts:
+`electricity_supply_chart / Electricity trade` (-1.63 at 2022), `supply_chart / Electricity
+Import` (-0.14 at 2022 — 0.02% of the stack, sub-pixel), and `capex_chart / Standalone Wind for
+Hydrogen` (-1.1 at 2047, a stacked BAR chart and so unaffected by area fill).
+
+### 9. "Costs shows 4 but has 3" — not a bug, an ambiguous badge
+
+The `· N` after a bundled row's name is the number of LEVERS in that row, not the number of
+ambition levels. Costs bundles four real Control-sheet levers (rows 59-62: Capital, Fuel,
+Infrastructure, Finance) and its slider has three positions because all four carry `LIMIT = 3` in
+the workbook. Both numbers are right and they count different things — `sidebar.py`'s
+`count_hint = f" &middot; {len(levers)}"`. Six levers are capped at 3 this way: rows 31, 40 and
+59-62. Left alone; if it keeps confusing people the badge is the thing to reword, not the slider.
+
 ### Verification status
 
 Run against live containers, not reasoned about: build succeeds; pickle rebuilt in-image (date + mode checked); presets return 2201.98/1564.93/1225.04/1070.58 with `computed` staying 0; Windows↔Linux bit-identical on a cache miss; 30-user warm run p95 33 ms with zero 429s; 30-user mixed p95 771 ms; 10-way concurrent correctness; prune cannot evict the frontier; one `baseline warm` line per worker.
