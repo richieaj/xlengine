@@ -2344,6 +2344,48 @@ document.querySelectorAll(".lg-subcat-row").forEach((row) => {
     if (isOpen() && !drawer.contains(e.target) && !btn.contains(e.target)) close();
   });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && isOpen()) close(); });
+  // In-page links (#top, #dashboard) close the drawer so the scroll is seen.
+  // lastFocused is dropped first: handing focus back to the hamburger would
+  // cancel the smooth scroll the link just started.
+  drawer.querySelectorAll('a[href^="#"]:not([href="#"])').forEach((a) =>
+    a.addEventListener("click", () => { lastFocused = null; close(); }));
+})();
+
+/* ---------- Sticky header height ----------
+   Two readers need the header's current height: --header-h (layout px, so
+   the hero and .page can fill exactly the space under it) and <html>'s
+   scroll-padding-top (real px, so anchor scrolls land below it rather than
+   under it). It changes with the breakpoint and with --ui-scale's zoom, so it
+   is measured, never assumed. */
+function syncHeaderHeight() {
+  const header = document.getElementById("site-header");
+  if (!header) return;
+  const root = document.documentElement;
+  const scale = parseFloat(getComputedStyle(root).getPropertyValue("--ui-scale")) || 1;
+  const h = header.getBoundingClientRect().height;
+  root.style.setProperty("--header-h", (h / scale).toFixed(2) + "px");
+  root.style.scrollPaddingTop = Math.ceil(h) + "px";
+}
+syncHeaderHeight();
+if (window.ResizeObserver) {
+  new ResizeObserver(syncHeaderHeight).observe(document.getElementById("site-header"));
+}
+
+/* ---------- Scroll reveal ----------
+   Fades each .reveal section in the first time it enters the viewport, then
+   stops watching it. See .reveal-armed in dashboard.css. */
+(function initReveal() {
+  const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce || !("IntersectionObserver" in window)) return;
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (!e.isIntersecting) return;
+      e.target.classList.add("is-visible");
+      io.unobserve(e.target);
+    });
+  }, { threshold: 0.08 });
+  document.documentElement.classList.add("reveal-armed");
+  document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
 })();
 
 /* ---------- Energy Flows: Sankey diagram (d3-sankey) ---------- */
@@ -2843,12 +2885,23 @@ function fitUiScale() {
 
   document.body.classList.add("measuring-fit");
   try {
+    // What is fitted is the CALCULATOR, not the whole document: from the top
+    // of <main id="dashboard"> to the footer's bottom edge, into the window
+    // less the sticky header. Measuring the document instead would count the
+    // hero above (a full screen tall) and drive the scale to UI_SCALE_MIN.
+    // Both edges come from rects, so their difference is independent of how
+    // far the page is scrolled.
+    const dash = document.getElementById("dashboard");
+    const header = document.getElementById("site-header");
     for (let pass = 0; pass < 6; pass++) {
       const bottom = footer.getBoundingClientRect().bottom;
-      if (bottom <= 0) return;  // not laid out yet (hidden tab, pre-paint)
+      const top = dash ? dash.getBoundingClientRect().top : 0;
+      const contentH = bottom - top;
+      if (contentH <= 0) return;  // not laid out yet (hidden tab, pre-paint)
+      const available = root.clientHeight - (header ? header.getBoundingClientRect().height : 0);
       // The 0.995 leaves the fitted content a hair inside the window: land it
       // exactly on the edge and rounding can hand us a scrollbar anyway.
-      const ratio = (root.clientHeight * 0.995) / bottom;
+      const ratio = (available * 0.995) / contentH;
       if (Math.abs(ratio - 1) < 0.004) break;
       // widthCap, not UI_SCALE_MAX: height is what we are fitting, width is a
       // constraint we are not allowed to violate while doing it.
@@ -2859,6 +2912,7 @@ function fitUiScale() {
     }
   } finally {
     document.body.classList.remove("measuring-fit");
+    syncHeaderHeight();  // its real height moves with the zoom just applied
   }
 
   // Re-drive the canvases (see resizeChartsToContainers) — never inline here,

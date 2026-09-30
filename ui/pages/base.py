@@ -1,5 +1,6 @@
-"""Outer page shell, top to bottom: a full-bleed masthead band (product name
-centred, menu button right), then a two-column grid — the tab row + active
+"""Outer page shell, top to bottom: a sticky site header (title band + nav
+strip, one shared --header-bg), the IESS intro hero (hero.py, via
+__HERO_HTML__), then the calculator itself in <main id="dashboard">: a two-column grid — the tab row + active
 tab's content, with the Insights card in a column to their right — then
 Custom Pathways (the old "control deck") full-width again below that grid,
 exactly like the masthead, and finally the site footer.
@@ -42,9 +43,10 @@ note in CLAUDE_CODE_PROJECT_CONTEXT.md about the width:100% bug).
 def render_base():
     return """
 <!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>IESS 2047 — India Energy Security Scenarios</title>
 <!-- The font is self-hosted (ui/static/fonts, built by tools/build_fonts.py)
      and declared in dashboard.css. There is deliberately no font CDN here:
@@ -62,9 +64,15 @@ def render_base():
 <link rel="preload" href="/static/fonts/roboto-var.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/css/dashboard.css">
 </head>
-<body>
-<main class="page">
-  <header class="site-banner">
+<body id="top">
+<!-- One header, two strips (title band + nav bar), sticky to the top of the
+     window. Both strips share one background token (--header-bg) and one
+     centred container (.site-header-inner), so they read as a single band and
+     the logos line up with the nav links. It sits outside <main> now, above
+     the hero, rather than inside .page as the first row of the calculator. -->
+<header class="site-header" id="site-header">
+  <div class="site-banner">
+   <div class="site-header-inner site-banner-row">
     <span class="site-banner-side">
       <!-- Both logos are plated (white pad + rounded corners) on the dark
            band, for two different reasons:
@@ -86,18 +94,41 @@ def render_base():
          this one is a genuine transparent PNG, but its type is #4E565A on a
          #3F4247 band (~1.3:1), so the plate is what makes it readable.
          The alt text is the English line so nothing is lost without images. -->
-    <img class="site-banner-title-logo site-banner-logo-plated"
-         src="/static/img/ICSS-logo-small.png" alt="India Energy Security Scenarios 2047">
+    <!-- aria-label, not the img's alt: the text line is hidden on narrow
+         screens, and the link must keep its name when it is. -->
+    <a class="site-banner-title" href="#top" aria-label="India Energy Security Scenarios 2047, back to top">
+      <img class="site-banner-title-logo site-banner-logo-plated"
+           src="/static/img/ICSS-logo-small.png" alt="">
+      <span class="site-banner-title-text">India Energy Security Scenarios</span>
+    </a>
     <span class="site-banner-side site-banner-actions">
       <img class="site-banner-logo site-banner-logo-plated" src="/static/img/ACPET_LOGO_White.png" alt="ACPET">
+      <!-- Hamburger: only shown below the nav's breakpoint, where the nav
+           strip's links collapse into the drawer (which lists the same ones). -->
       <button type="button" class="menu-btn" id="app-menu-btn"
-              aria-label="Menu" aria-haspopup="true" aria-expanded="false">
+              aria-label="Menu" aria-haspopup="true" aria-expanded="false" aria-controls="app-menu">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <path d="M4 7h16M4 12h16M4 17h16"/>
         </svg>
       </button>
     </span>
-  </header>
+   </div>
+  </div>
+  <nav class="site-nav" aria-label="Primary">
+    <div class="site-header-inner site-nav-row">
+      <a class="site-nav-link site-nav-home" href="#top" aria-label="Home">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>
+      </a>
+      <a class="site-nav-link" href="#dashboard">Dashboard</a>
+      <a class="site-nav-link" href="#">How-to</a>
+      <a class="site-nav-link" href="#">Videos</a>
+      <a class="site-nav-link" href="#">Project</a>
+      <a class="site-nav-link" href="#">Science</a>
+      <a class="site-nav-link" href="#">Feedback</a>
+      <a class="site-nav-link" href="#">Legal</a>
+    </div>
+  </nav>
+</header>
 
   <!-- Right-hand slide-in drawer. Destinations are placeholders (href="#")
        until the real URLs land; FEEDBACK needs a real mailbox address. -->
@@ -109,7 +140,9 @@ def render_base():
         </svg>
       </button>
     </div>
-    <nav class="drawer-nav">
+    <nav class="drawer-nav" aria-label="Site menu">
+      <a class="drawer-item" href="#top">Home</a>
+      <a class="drawer-item" href="#dashboard">Dashboard</a>
       <a class="drawer-item" href="#">How-to</a>
       <a class="drawer-item" href="#">Videos<svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4l-8 8"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></a>
       <a class="drawer-item" href="#">Project<svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4l-8 8"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></a>
@@ -119,7 +152,10 @@ def render_base():
     </nav>
   </div>
 
-  <div class="page-grid">
+__HERO_HTML__
+
+<main class="page" id="dashboard">
+  <div class="page-grid reveal">
     <div class="page-main">
       <div class="tab-row">
         <div class="pill-tabs">__TABS_HTML__</div>
@@ -167,7 +203,7 @@ def render_base():
 
   </div>
 
-  <section class="control-deck-h">
+  <section class="control-deck-h reveal" aria-label="Custom Pathways">
     <!-- The deck's top edge used to be a purely decorative 2px gradient rule
          (.control-deck-h::before). It is a real gauge now: the pathway's own
          2047 GHG emissions, driven from the same emissions_2047_total the

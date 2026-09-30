@@ -21,6 +21,7 @@ from levers import load_levers
 from outputs import (CHART_YEAR_LABELS, DEFERRABLE_KEYS, SUMMARY_KPI_KEYS,
                      compute_outputs, diff_outputs, kpi_deltas)
 from pages.base import render_base
+from pages.hero import render_hero
 from pages.sidebar import render_sidebar_html
 from pages.tabs import render_tabs_html, render_year_buttons_html
 from pages import (all_energy, electricity, energy_security, emissions, indicators,
@@ -187,6 +188,7 @@ def index():
     sidebar_html, flyouts_html = render_sidebar_html(SIDEBAR_GROUPS)
     html = html.replace("__SIDEBAR_HTML__", sidebar_html)
     html = html.replace("__LEVER_FLYOUTS_HTML__", flyouts_html)
+    html = html.replace("__HERO_HTML__", render_hero())
     html = html.replace("__TABS_HTML__", render_tabs_html())
     html = html.replace("__PAGES_HTML__", pages_html)
     html = html.replace("__YEAR_BUTTONS_HTML__", render_year_buttons_html())

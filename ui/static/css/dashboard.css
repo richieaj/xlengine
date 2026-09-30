@@ -251,6 +251,23 @@ html, body { min-height: 100%; margin: 0; }
      one. Width needs no equivalent: every column here is already fluid and
      fills whatever it is given. */
   --ui-scale: 0.9;
+  /* Site header. ONE token for both strips (title band + nav), so they can
+     never drift apart in colour. The brand blue from the ICED header.
+     Contrast: white on this blue measures 3.08:1, which passes WCAG AA only
+     for large text (the 26px bold title); the 15px nav links are held to
+     600 weight but still sit below AA's 4.5:1 for body-size text. #2B7BB9
+     (4.6:1) is the nearest shade that clears it, if that matters more than
+     matching the screenshot. */
+  --header-bg: #3D9AD9;
+  --header-ink: #FFFFFF;
+  /* Title band above the nav strip: white, with the brand blue as its ink. */
+  --banner-bg: #FFFFFF;
+  --banner-ink: var(--header-bg);
+  /* The inner width both strips centre within, so logos and links align. */
+  --header-max: 1600px;
+  /* The header's height in layout px, kept current by dashboard.js
+     (syncHeaderHeight). The fallback is the desktop height, for first paint. */
+  --header-h: 118px;
 }
 body {
   font: var(--t-body);
@@ -302,27 +319,36 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
    page; the Insights card is sticky but scrolls nothing internally.
    min-height here just keeps a short tab from leaving the footer stranded
    above the bottom of the window. */
-.page { min-height: calc(100vh / var(--ui-scale)); display: flex; flex-direction: column; padding: var(--page-top) var(--page-x) 0; }
+/* Minus the sticky header: .page is the calculator view below the hero, and
+   it is the space UNDER the header that it has to fill. */
+.page { min-height: calc(100vh / var(--ui-scale) - var(--header-h)); display: flex; flex-direction: column; padding: var(--page-top) var(--page-x) 0; }
 
-/* ── Site masthead ──────────────────────────────────────────────────────
-   Full-bleed band at the very top carrying the product name, centred. Pairs
-   with the control-deck band at the bottom: identity above, controls below,
-   data in between. The negative top margin cancels .page's top padding so
-   the band sits flush against the window edge, and the negative side margins
-   let it bleed past the page inset the same way the deck does. */
-.site-banner {
-  flex: none;
-  margin: calc(-1 * var(--page-top)) calc(-1 * var(--page-x)) 8px;
-  /* 6px, down from 10. The band grew when the wordmark replaced the text
-     title; trimming the padding takes some of that back without touching the
-     marks themselves, which is the part that had to stay legible. The plates
-     carry their own padding, so the band is not tight against the artwork. */
-  padding: 6px var(--page-x);
-  /* Same band colour as the footer, so the page is bracketed by one dark grey
-     top and bottom (and the same colour the menu drawer's own header uses).
-     EU-Calc's masthead is a dark grey bar too. No border-bottom: the colour
-     change is the edge. */
-  background: #3F4247;
+/* ── Site header ────────────────────────────────────────────────────────
+   Two strips — title band, nav bar — in one sticky <header>. Both are
+   block-level children of it, so they are the same width by construction
+   (the full window), and both paint var(--header-bg), so they read as one
+   band. Their contents share .site-header-inner, one centred max-width box,
+   which is what lines the logos up with the links. A hairline of white at
+   low alpha divides the two strips without a second colour. */
+.site-header {
+  position: sticky; top: 0; z-index: 50;
+  background: var(--header-bg); color: var(--header-ink);
+  box-shadow: 0 2px 10px -4px rgba(16,17,20,.35);
+}
+.site-header-inner {
+  max-width: var(--header-max); margin: 0 auto;
+  padding: 0 var(--page-x); box-sizing: border-box;
+}
+/* The title band is white; only the nav strip below it carries the blue.
+   Its ink flips to the blue, so the title and hamburger read on white. */
+.site-banner { padding: 6px 0; background: var(--banner-bg); color: var(--banner-ink); }
+.site-banner .site-banner-title,
+.site-banner .menu-btn { color: var(--banner-ink); }
+.site-banner .menu-btn:hover,
+.site-banner .menu-btn[aria-expanded="true"] { background: var(--surface-2); color: var(--banner-ink); }
+.site-banner .site-banner-title:focus-visible,
+.site-banner .menu-btn:focus-visible { outline-color: var(--banner-ink); }
+.site-banner-row {
   /* 1fr / auto / 1fr keeps the product name optically centred in the window
      regardless of what sits in the side slots. */
   display: grid;
@@ -330,6 +356,25 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
   align-items: center;
   gap: 12px;
 }
+.site-banner-title { display: flex; align-items: center; gap: 14px; color: var(--header-ink); min-width: 0; }
+.site-banner-title:focus-visible { outline: 2px solid #fff; outline-offset: 3px; border-radius: 6px; }
+/* The one piece of display text in the header: 26px bold, uppercase, so it
+   counts as WCAG "large text" and clears 3:1 on the brand blue. */
+.site-banner-title-text {
+  font: 700 26px/1.1 var(--font-sans); letter-spacing: .02em; text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.site-nav { border-top: 1px solid rgba(255,255,255,.22); }
+.site-nav-row { display: flex; align-items: center; justify-content: center; gap: 4px; min-height: 40px; }
+.site-nav-link {
+  display: flex; align-items: center; padding: 8px 14px; border-radius: 6px;
+  font: 600 15px/1.2 var(--font-sans); color: var(--header-ink);
+  transition: background .14s;
+}
+.site-nav-link:hover { background: rgba(255,255,255,.16); }
+.site-nav-link:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
+.site-nav-home svg { width: 20px; height: 20px; }
 .site-banner-side { min-width: 0; }
 /* 48px, up from 36. At 36 both marks were small enough that the NITI emblem's
    fine navy linework and ACPET's lettering were sitting there unreadable —
@@ -371,7 +416,7 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
    max-width stops it crowding them on a narrow window, and `height: auto`
    under that cap keeps the ratio. */
 .site-banner-title-logo {
-  height: 64px; width: auto; max-width: min(52vw, 660px);
+  height: 56px; width: auto; max-width: min(40vw, 560px);
   object-fit: contain; display: block;
   /* Tighter than the side logos' 3px/7px: at this size the default pad drew a
      wide white slab, and the artwork already carries its own margin. */
@@ -385,7 +430,7 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
   border: 1px solid transparent; border-radius: 8px; background: transparent;
   /* Light-on-dark now that the masthead is a dark band — var(--muted) here
      was a mid grey chosen for a white bar and would have all but vanished. */
-  color: #C3C7CC; cursor: pointer; transition: background .14s, color .14s, border-color .14s;
+  color: var(--header-ink); cursor: pointer; transition: background .14s, color .14s, border-color .14s;
 }
 .menu-btn svg { width: 19px; height: 19px; }
 /* A translucent white wash rather than a light fill — the same treatment the
@@ -411,7 +456,7 @@ sub { font-size: .58em; line-height: 0; vertical-align: -.12em; }
 /* Dark header holding the close control, matching the masthead's height so
    the two line up when the drawer is open. */
 .drawer-head {
-  flex: none; height: 53px; background: #3F4247;
+  flex: none; height: 53px; background: var(--header-bg);
   display: flex; align-items: center; justify-content: flex-end; padding: 0 12px;
 }
 .drawer-close {
@@ -1740,3 +1785,141 @@ body.measuring-fit .site-footer { margin-top: 0; }
   .lg-flyout.is-open .lg-flyout-row { animation: none; }
   .lg-expand-btn svg { transition: none; }
 }
+
+/* ── Site header: responsive ────────────────────────────────────────────
+   Breakpoints are REAL viewport widths (media queries ignore body's zoom).
+   Below 1100px the title text goes and the wordmark alone carries the name
+   (it says the same thing; the link's aria-label keeps it for screen
+   readers). Below 768px the nav strip collapses into the hamburger, which
+   opens the existing drawer, and the marks scale down. */
+.menu-btn { display: none; }
+@media (max-width: 1100px) {
+  .site-banner-title-text { display: none; }
+}
+@media (max-width: 768px) {
+  .site-nav { display: none; }
+  .menu-btn { display: flex; }
+  .site-banner-logo { height: 34px; }
+  .site-banner-title-logo { height: 40px; }
+}
+
+/* Anchor links (#dashboard, #top) glide rather than jump, and land below the
+   sticky header: dashboard.js sets scroll-padding-top on <html> from the
+   header's measured height. Instant for anyone who asked for less motion. */
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
+
+/* ── Landing hero ───────────────────────────────────────────────────────
+   Exactly one screen under the sticky header. 100vh is divided by
+   --ui-scale for the same reason .page's min-height is: body's zoom scales
+   vh along with everything else. Soft blue-to-green wash in the header's
+   blue and the lever ramp's green, kept pale so the body ink holds its
+   full ~17:1 contrast on it. */
+.hero {
+  position: relative; box-sizing: border-box;
+  min-height: calc(100vh / var(--ui-scale) - var(--header-h));
+  display: flex; align-items: center; justify-content: center;
+  padding: 48px var(--page-x) 88px;
+  background:
+    radial-gradient(60% 55% at 12% 18%, rgba(61,154,217,.20), transparent 70%),
+    radial-gradient(55% 50% at 88% 82%, rgba(37,112,44,.16), transparent 70%),
+    linear-gradient(160deg, #EEF6FC 0%, #F6FAF7 55%, #EAF4EC 100%);
+  overflow: hidden;
+}
+.hero-inner { width: 100%; max-width: 1180px; text-align: center; }
+.hero-eyebrow {
+  margin: 0 0 12px; font: 600 13px/1.3 var(--font-sans);
+  letter-spacing: .12em; text-transform: uppercase; color: var(--accent);
+}
+.hero-title {
+  margin: 0 auto 16px; max-width: 18em;
+  font: 700 48px/1.1 var(--font-sans); letter-spacing: -.01em; color: var(--ink);
+}
+.hero-sub {
+  margin: 0 auto 28px; max-width: 44em;
+  font: 400 18px/1.55 var(--font-sans); color: #3A414B;
+}
+.hero-ctas { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-bottom: 44px; }
+.hero-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 13px 24px; border-radius: 999px; border: 2px solid var(--accent);
+  font: 600 15px/1 var(--font-sans);
+  transition: background .15s, color .15s, transform .15s, box-shadow .15s;
+}
+/* --accent, not --header-bg, for the filled button: white on #29699A is
+   6.2:1, so the button label passes AA at body size where the brighter
+   header blue would not. */
+.hero-btn-primary { background: var(--accent); color: #fff; box-shadow: 0 6px 18px -8px rgba(41,105,154,.7); }
+.hero-btn-primary:hover { background: #1F5783; border-color: #1F5783; }
+.hero-btn-secondary { background: rgba(255,255,255,.75); color: var(--accent); }
+.hero-btn-secondary:hover { background: #fff; }
+.hero-btn:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+
+.hero-cards {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px;
+  text-align: left;
+}
+.hero-card {
+  background: rgba(255,255,255,.86); border: 1px solid var(--line); border-radius: 14px;
+  padding: 20px 20px 22px;
+  box-shadow: 0 10px 28px -20px rgba(16,17,20,.45);
+}
+.hero-card-icon {
+  width: 40px; height: 40px; padding: 9px; box-sizing: border-box; border-radius: 10px;
+  color: var(--accent); background: #E4F0F9; margin-bottom: 12px;
+}
+.hero-card:nth-child(even) .hero-card-icon { color: #25702C; background: #E5F2E6; }
+.hero-card-title { margin: 0 0 6px; font: 700 18px/1.2 var(--font-sans); color: var(--ink); }
+.hero-card-body { margin: 0; font: 400 14px/1.55 var(--font-sans); color: #3A414B; }
+
+.hero-scroll {
+  position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
+  width: 44px; height: 44px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent); background: rgba(255,255,255,.8); border: 1px solid var(--line);
+}
+.hero-scroll svg { width: 22px; height: 22px; }
+.hero-scroll:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+@media (prefers-reduced-motion: no-preference) {
+  .hero-scroll svg { animation: hero-bounce 1.8s ease-in-out infinite; }
+}
+@keyframes hero-bounce {
+  0%, 100% { transform: translateY(-3px); }
+  50%      { transform: translateY(4px); }
+}
+
+@media (max-width: 1100px) {
+  .hero-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .hero { padding-top: 32px; }
+  .hero-title { font-size: 36px; }
+  .hero-sub { font-size: 16px; }
+  .hero-cards { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── Scroll reveal ──────────────────────────────────────────────────────
+   Armed only when dashboard.js adds .reveal-armed to <html> (it skips that
+   for reduced motion and for browsers without IntersectionObserver), so
+   with no script every section is simply visible.
+   Opacity and translate only — neither changes a box's size, so chart sizing
+   (getBoundingClientRect-based) and fitUiScale's measurements are
+   unaffected. The settled state is transform:none, never a transform left
+   in place: that would make these sections the containing block for the
+   position:fixed popups inside them. */
+.reveal-armed .reveal { opacity: 0; transform: translateY(24px); transition: opacity .6s ease, transform .6s ease; }
+.reveal-armed .reveal.is-visible { opacity: 1; transform: none; }
+
+/* ── Chart panels, after the ICED "Renewable Energy Progress" chart ─────
+   Every chart sits on a soft pale-blue plate with rounded corners, which
+   is what lifts it off the page. Scoped with :has(canvas) so KPI cards and
+   text panels keep their own chrome. The canvas itself stays transparent,
+   so the tint shows through the plot, the legend and the axis labels alike. */
+.panel:has(canvas), .card:has(canvas) {
+  background: var(--chart-plate);
+  border-radius: 14px;
+  padding: 14px 18px 12px;
+}
+:root { --chart-plate: #E4EFF6; }
